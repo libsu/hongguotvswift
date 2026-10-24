@@ -1,0 +1,14 @@
+# 构建产物
+outputs/
+build/
+.DS_Store
+
+# Xcode / Swift
+.swiftpm/
+*.xcodeproj/
+DerivedData/
+
+# macOS
+*.app
+*.zip
+mac-update.json
