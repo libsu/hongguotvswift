@@ -7,6 +7,12 @@
 
 逻辑层（网络签名、协议、媒体解密、数据模型）跨平台复用，平台相关的 GUI 层各自独立。
 
+## 截图
+
+| macOS                           | tvOS（Apple TV）                 |
+| ------------------------------- | -------------------------------- |
+| ![macOS](screenshots/macos.jpg) | ![tvOS](screenshots/appletv.jpg) |
+
 ## 平台
 
 | 平台  | 最低版本 | 架构           | 说明                                     |
@@ -41,7 +47,8 @@ hongguotvswift/
 ├── Resources/          # AppIcon.icns
 ├── tests/              # 回归测试 + signing.json 金标准
 ├── scripts/            # 构建与测试脚本
-├── docs/               # 设计与移植文档
+├── docs/               # 设计文档
+├── screenshots/        # 界面截图（macOS / tvOS）
 ├── Info.plist          # macOS 配置
 ├── TVInfo.plist        # tvOS 配置
 ├── LICENSE / NOTICE.md / THIRD_PARTY.md
@@ -68,11 +75,20 @@ bash scripts/build-mac-swift.sh
 需完整 Xcode + AppleTVOS SDK（`xcodebuild -downloadPlatform tvOS`）。
 
 ```sh
-# 构建（产出 outputs/tvos/HongGuoTV.app）
+# 构建（默认真机 arm64-apple-tvos；产出 outputs/tvos/HongGuoTV.app）
 bash scripts/build-tv-swift.sh
+
+# 构建模拟器版本（arm64-apple-tvsimulator；产出 outputs/tvos-sim/HongGuoTV.app）
+bash scripts/build-tv-swift.sh simulator
 ```
 
-产物需通过 Xcode 安装到 tvOS 真机或模拟器运行。
+产物需通过 Xcode 安装到 tvOS 真机，或通过模拟器安装运行：
+
+```sh
+# 安装并运行到已启动的模拟器
+xcrun simctl install booted outputs/tvos-sim/HongGuoTV.app
+xcrun simctl launch booted com.hongguotvswift.tv
+```
 
 ## 测试
 
