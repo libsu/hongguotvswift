@@ -1,44 +1,50 @@
-# 原生版第三方声明
+# 第三方声明
 
-本地播放兼容修改参考 FanchangWang 的 GPL-3.0 项目贡献：
-https://github.com/N3urda/hongguoTV/pull/22 。播放请求使用独立设备标识和无签名请求，复用本项目原有的响应大小限制、请求取消及媒体解析逻辑。
+本仓库是红果短剧的纯 Swift 客户端（macOS / tvOS）。以下列出本项目参考或改写的第三方来源，以及随源码分发的第三方许可。
 
-2026-10-21 账号测试功能参考 charlie901208/HGTV 的 `feat/phone-login` 分支（GPL-3.0-only）：
-https://github.com/charlie901208/HGTV/tree/feat/phone-login 。`DeviceRegister.kt`、`PhoneLogin.kt` 由该分支移植并修改；账号读写的路径和字段参照其 `Account.kt`、`ContentRepository.kt`。本地实现补充有界响应读取、登录态加密存储、错误验证码停止重试与云端精确进度字段保留；账号界面和同步调度为本地实现。未合并该分支的广告、遥测、界面重构或其他功能。原作者著作权保留。
+## 协议与签名
 
-`core` 中内容请求签名、Spade URL / key 处理、MP4 CENC 处理是以下 GPL-3.0 源码的 Kotlin 移植：
+内容请求签名（gorgon / helios / medusa / x-argus）、Spade URL / key 处理、MP4 CENC 媒体解密，参考以下 GPL-3.0 源码的 Kotlin 实现移植为 Swift：
 
 - drpys, `spider/js/红果果[短].js`
 - https://github.com/woshishiq1/drpys/tree/22261adfa31435e3b3ef5a730b8a2a75bcaf1715
 - 本仓库对照源：`../server/vendor/hongguo.cjs`，取回于 2026-09-21。
-- 本版改动：完整 Kotlin 实现；签名只选择已验证的 hash branch 0；加密媒体通过 Media3 DataSource 直接读取；增加样本边界检查、子样本处理和 AVC 原始编码恢复。
 
-`kotlin-tv/` 原生应用源码和派生实现以 GPL-3.0-only 发布，许可证全文见 `LICENSE`。发布 APK 时同时提供本分支对应源码、Gradle 包装器和构建说明。APK 不包含 Node、React Native、JavaScript 引擎或该 JavaScript 源文件。`tools/signing-oracle.cjs` 仅为开发期生成对照测试数据的工具，不参与应用构建或运行。
+实现要点：签名只选择已验证的 hash branch 0；加密媒体通过媒体层自定义 scheme + `AVAssetResourceLoaderDelegate` 直接取流并样本级解密；增加样本边界检查、子样本处理和 AVC 原始编码恢复。对应源码位于 `Sources/Crypto/` 与 `Sources/Media/`。
 
-其他依赖：
+## 播放兼容
 
-- ZXing core（本机生成手机输入与更新二维码）：https://github.com/zxing/zxing — Apache-2.0
-- Kotlin 标准库：https://github.com/JetBrains/kotlin — Apache-2.0
-- AndroidX Media3：https://github.com/androidx/media — Apache-2.0
-- OkHttp / Okio：https://github.com/square/okhttp / https://github.com/square/okio — Apache-2.0
-- SM3 国密哈希为本地纯 Kotlin 实现（GM/T 0004-2012），不再依赖 Bouncy Castle；此前 Bouncy Castle SM3 参考：https://github.com/bcgit/bc-java — MIT
-- jsoup（仅解析官网 HTML，不执行网页脚本）：https://jsoup.org/ — MIT
-- Android desugar_jdk_libs：https://github.com/google/desugar_jdk_libs — GPL-2.0 with Classpath Exception
-- org.json（仅 JVM 工具，APK 使用 Android 内置实现）：https://github.com/stleary/JSON-java — 公有领域声明
-- JUnit（仅测试）：https://github.com/junit-team/junit4 — EPL-1.0
+本地播放兼容修改参考 FanchangWang 的 GPL-3.0 项目贡献：
+https://github.com/N3urda/hongguoTV/pull/22 。
 
-应用图标和 TV banner 沿用本仓库素材。这里的应用不是内容平台官方客户端。
+播放请求使用独立设备标识和无签名请求，复用本项目原有的响应大小限制、请求取消及媒体解析逻辑。
 
-Mac/TV 共用评论签名的第三方许可：
+## 账号登录
 
-# Mac 第三方声明
+账号登录功能参考 charlie901208/HGTV 的 `feat/phone-login` 分支（GPL-3.0-only）：
+https://github.com/charlie901208/HGTV/tree/feat/phone-login 。
+
+设备注册（`Sources/Account/DeviceRegister.swift`）与官网扫码登录会话（`Sources/Account/WebLogin.swift`）由该分支移植并改写；账号读写的路径和字段参照其 `Account.kt`、`ContentRepository.kt`。本地实现补充有界响应读取、登录态加密存储（钥匙串）、错误验证码停止重试与云端精确进度字段保留；账号界面和同步调度为本地实现。
+
+## 评论
 
 本集评论的协议字段参考 yangbin1322/hongguo-player 公开发行包中的接口线索（https://github.com/yangbin1322/hongguo-player/releases/tag/v1.2.11），以匿名请求核实数据来源和游标推进后独立实现；未纳入该客户端的代码、资源或二进制。
 
-弹幕评论签名的通用 Argus / Simon 结构参考并改写自 tr4cex/TikTok-Encryption（MIT）：
-https://github.com/tr4cex/TikTok-Encryption 。Gorgon、Ladon 基于本仓库已有 GPL core Signer 改写。红果请求字段为匿名读取验证的协议参数。未纳入许可证未确认的 guoapp 实现。
+## 弹幕签名
 
-MIT License
+弹幕评论签名的通用 Argus / Simon 结构参考并改写自 tr4cex/TikTok-Encryption（MIT）：
+https://github.com/tr4cex/TikTok-Encryption
+
+许可证全文见下文「MIT License」。
+
+## 其他
+
+- SM3 国密哈希为本仓库纯 Swift 实现（GM/T 0004-2012，`Sources/Crypto/SM3.swift`）；此前 Bouncy Castle SM3 参考：https://github.com/bcgit/bc-java — MIT
+- 应用图标沿用本仓库素材。这里的应用不是内容平台官方客户端。
+
+---
+
+# MIT License
 
 Copyright (c) 2024 TikTok Encryption Project
 
@@ -65,5 +71,3 @@ This software is intended for educational and research purposes only.
 Users are responsible for ensuring their use complies with applicable laws
 and terms of service. The authors disclaim any responsibility for misuse
 of this software.
-
-评论表情图使用 Microsoft Fluent Emoji（MIT），通过 GPL HGTV 参考项目取得；许可全文随 APK assets/comment_emoji/LICENSE.txt 分发。为通用替代表情，非红果官方贴图。

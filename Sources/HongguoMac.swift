@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import SwiftUI
-import AVKit
+import Foundation
+import Combine
+import AVFoundation
 
 @MainActor final class Model: ObservableObject {
     @Published var query = ""
@@ -15,7 +16,6 @@ import AVKit
     @Published var playerControlsVisible = true
     @Published var infoPanelOpen = false
     @Published var pipActive = false
-    var pipController: AVPictureInPictureController?
     lazy var comments = MacComments { [weak self] series, episode in
         guard let self else { throw URLError(.cancelled) }
         return try await self.request("comments", ["series": series, "episode": episode])
@@ -28,10 +28,8 @@ import AVKit
         guard let self else { throw URLError(.cancelled) }
         return try await self.request("danmaku", ["series": series, "episode": episode, "start": String(start), "duration": String(duration)])
     }
-    lazy var fullscreenPlayback = FullscreenPlayback(player: player, model: self)
     let library: LocalLibrary
     let catalogCache = CatalogCache()
-    let updates = MacUpdates()
     @Published var section = "搜索"
     @Published var navigation = "搜索"
     /// 上一次栏目，用于跨栏目切换时判断是否打断进行中的请求。
@@ -49,7 +47,7 @@ import AVKit
     @Published var account: AccountResult?
     @Published var accountMessage = "登录后可查看账号片单和同步进度"
     @Published var accountBusy = false
-    @Published var qrImage: NSImage?
+    @Published var qrImageData: Data?
     @Published var cloudType = "账户历史"
     @Published var cloudRows: [CloudEntry] = []
     /// 已登录账户的收藏剧集 id 集合，用于收藏按钮的「已收藏」态判断。
@@ -94,8 +92,6 @@ import AVKit
     /// 用户主动点「开始刷剧」后，加载完成即试播第一部；进入首页默认不自动试播。
     var autoTrialAfterLoad = false
     private var cloudResume: (Int, Double)?
-    private var helper: Process?
-    private var input: Pipe?
     private var base: URL?
     private var page = 1
     private var searched = ""
@@ -103,11 +99,11 @@ import AVKit
     /// perform 请求代次：跨栏目打断请求后，旧任务的 defer 依靠它避免误复位 busy/误处理 pending。
     private var performGeneration = UUID()
     private var playerObservation: NSKeyValueObservation?
-    /// 全局键盘监听器（空格播放/暂停、方向键等），普通窗口与全屏共用。
-    private var keyMonitor: Any?
     private let requestSession: URLSession
     /// 只读协议层的原生 Swift 实现（阶段 2）。为 nil 时全部走 HTTP 桥。
     let backend: HongguoBackend?
+    /// 平台集成接口（键盘监听 / 全屏 / 画中画 / JVM 桥接等）。由 GUI 层注入；纯逻辑/测试场景为 nil。
+    weak var platformInterface: (any ModelPlatformInterface)?
     /// 当前播放会话的资源加载委托（阶段 3），保持强引用避免被提前释放。
     private var activeLoader: ResourceLoader?
     /// 切集预热缓存（阶段 3），按 episodeID+quality 键存已解析的加密索引。
@@ -139,7 +135,6 @@ import AVKit
             }
         }
         Task { await start(resources: resourcesURL, restoreSession: restoreSession) }
-        installKeyMonitor()
     }
     private func start(resources: URL?, restoreSession: Bool) async {
         defer { busy = false }
@@ -149,38 +144,10 @@ import AVKit
             Log.shared.info("启动：Swift 原生模式（无 JVM Helper）")
             message = "输入剧名，开始找剧"
             if restoreSession { Task { await restoreAccount() } }
-            updates.autoCheckIfEnabled()
             return
         }
-        guard let resources else { return }
-        let process = Process()
-        process.executableURL = resources.appendingPathComponent("runtime/bin/java")
-        process.arguments = ["-Xms32m", "-Xmx256m", "-XX:+UseSerialGC", "--add-modules", "jdk.httpserver", "-cp", resources.appendingPathComponent("lib/*").path, "com.hongguotv.desktop.MainKt"]
-        let output = Pipe(), input = Pipe()
-        process.standardOutput = output
-        process.standardInput = input
-        process.standardError = FileHandle.nullDevice
-        self.input = input
-        do {
-            try process.run()
-            helper = process
-            let line: String = try await Task.detached {
-                var data = Data()
-                while data.count < 1024 {
-                    let byte = try output.fileHandleForReading.read(upToCount: 1) ?? Data()
-                    if byte.isEmpty || byte.first == 10 { break }
-                    data.append(byte)
-                }
-                return String(decoding: data, as: UTF8.self)
-            }.value
-            guard let url = URL(string: line), url.host == "127.0.0.1", url.scheme == "http" else {
-                throw URLError(.cannotConnectToHost)
-            }
-            base = url
-            message = "输入剧名，开始找剧"
-            if restoreSession { Task { await restoreAccount() } }
-            updates.autoCheckIfEnabled()
-        } catch { message = "客户端启动失败，请重新打开应用。"; shutdown() }
+        // 无原生后端、无桥接 URL、无资源：无法启动（理论不可达，防御性处理）。
+        message = "客户端启动失败，请重新打开应用。"
     }
     func request<T: Decodable>(_ path: String, _ parameters: [String: String], body: [String: Any]? = nil) async throws -> T {
         let started = Date()
@@ -504,40 +471,25 @@ import AVKit
         quality = value; UserDefaults.standard.set(value, forKey: "playbackQuality")
     }
 
-    /// 安装全局键盘监听：空格播放/暂停、方向键快进快退/切换作品，普通窗口与全屏共用。
-    /// 排除文本输入焦点（搜索框、评论输入等），避免打字时误触发。
-    private func installKeyMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            // 文本输入控件聚焦时放行，交给文本框处理。
-            if let responder = NSApp.keyWindow?.firstResponder,
-               responder is NSTextView || responder is NSTextField {
-                return event
-            }
-            switch event.keyCode {
-            case 49: // 空格
-                if self.showDetail { self.togglePlayback() }; return nil
-            case 123: self.skipPlayback(-10); return nil
-            case 124: self.skipPlayback(10); return nil
-            case 125, 126:
-                if self.preview { self.moveRecommendation(event.keyCode == 125 ? 1 : -1) }; return nil
-            default: return event
-            }
-        }
-    }
 
     func shutdown() {
-        comments.clear(); commentThread.clear(); danmaku.clear(); fullscreenPlayback.close(); homeWarmTask?.cancel(); homeWarmDetail = nil; pendingHomeSeries = nil
+        comments.clear(); commentThread.clear(); danmaku.clear(); platformInterface?.platformWillShutdown(); homeWarmTask?.cancel(); homeWarmDetail = nil; pendingHomeSeries = nil
         stopping = true; pendingNext = false; pendingTrial = false; pendingResume = false; relatedTask?.cancel(); loginTask?.cancel(); uploadTask?.cancel(); cloudTask?.cancel()
         warmNextTask?.cancel()
         saveProgress(); action?.cancel()
         if let progressObserver { player.removeTimeObserver(progressObserver); self.progressObserver = nil }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver); self.endObserver = nil }
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }
+        platformInterface?.platformShutdown()
         player.pause(); player.replaceCurrentItem(with: nil)
         activeLoader?.close(); activeLoader = nil; preparedCache.clear()
         backend?.accountClose()
-        try? input?.fileHandleForWriting.close()
-        helper?.terminate(); helper = nil
     }
+}
+
+/// 平台集成接口：由 GUI 层实现，逻辑层只依赖此抽象，不碰 AppKit/AVKit。
+@MainActor
+protocol ModelPlatformInterface: AnyObject {
+    func installPlatformIntegrations(resourcesURL: URL?, restoreSession: Bool)
+    func platformWillShutdown()
+    func platformShutdown()
 }

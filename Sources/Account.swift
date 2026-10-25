@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import Security
-import SwiftUI
 
 struct AccountResult: Decodable {
     let loggedIn: Bool
@@ -41,7 +40,12 @@ enum SessionKeychain {
         if status == errSecItemNotFound {
             var entry = query
             entry[kSecValueData as String] = data
+            #if os(tvOS)
+            // tvOS 无「设备解锁后可用」语义，使用 AfterFirstUnlock。
+            entry[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            #else
             entry[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            #endif
             guard SecItemAdd(entry as CFDictionary, nil) == errSecSuccess else { throw failure() }
         } else if status != errSecSuccess { throw failure() }
     }
@@ -71,9 +75,9 @@ extension Model {
             defer { accountBusy = false }
             do {
                 let qr: QRResult = try await request("account/qr", [:], body: [:])
-                guard let data = Data(base64Encoded: qr.image), let image = NSImage(data: data) else { throw URLError(.cannotDecodeContentData) }
+                guard let data = Data(base64Encoded: qr.image) else { throw URLError(.cannotDecodeContentData) }
                 pendingLoginID = qr.loginID
-                qrImage = image; accountMessage = "请用红果 App 扫一扫，扫码后在手机确认登录。"
+                qrImageData = data; accountMessage = "请用红果 App 扫一扫，扫码后在手机确认登录。"
                 let expires = Date().addingTimeInterval(Double(min(300, max(1, qr.expiresIn))))
                 while Date() < expires {
                     try await Task.sleep(nanoseconds: 2_000_000_000)
@@ -81,7 +85,7 @@ extension Model {
                     let result: AccountResult = try await request("account/poll", ["loginID": qr.loginID])
                     try Task.checkCancellation()
                     if result.loggedIn {
-                        acceptAccount(result); qrImage = nil; pendingLoginID = nil; lastUpload = .distantPast
+                        acceptAccount(result); qrImageData = nil; pendingLoginID = nil; lastUpload = .distantPast
                         accountMessage = "登录成功，播放进度会定期上传。"
                         if let credentials = result.credentials {
                             do { try SessionKeychain.save(credentials) }
@@ -90,16 +94,16 @@ extension Model {
                         return
                     }
                 }
-                qrImage = nil; accountMessage = "二维码已过期，请重新获取。"
+                qrImageData = nil; accountMessage = "二维码已过期，请重新获取。"
             } catch {
-                qrImage = nil
+                qrImageData = nil
                 if !Task.isCancelled { accountMessage = error.localizedDescription }
             }
         }
     }
     func cancelLogin() {
         let cancelled = pendingLoginID
-        pendingLoginID = nil; loginTask?.cancel(); qrImage = nil
+        pendingLoginID = nil; loginTask?.cancel(); qrImageData = nil
         if let cancelled {
             Task { let _: OperationResult? = try? await request("account/cancel", [:], body: ["loginID": cancelled]) }
         }
@@ -192,29 +196,6 @@ extension Model {
                 let _: OperationResult = try await request("account/upload", [:], body: ["series": series, "episodeID": record.episodeID, "episodeIndex": record.episodeIndex, "position": Int64(record.position * 1000), "duration": Int64(record.duration * 1000), "episodeCount": count, "accountID": identity])
                 if account?.id == identity { accountMessage = "播放进度已上传" }
             } catch { if account?.id == identity { accountMessage = "云端进度上传失败，本机记录已保留。" } }
-        }
-    }
-}
-
-struct AccountPanel: View {
-    @ObservedObject var model: Model
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let account = model.account, account.loggedIn {
-                HStack {
-                    Text(account.nickname ?? "红果用户").font(.headline)
-                    Spacer()
-                    Button("退出") { model.logout() }.disabled(model.busy)
-                }
-            } else {
-                if let image = model.qrImage {
-                    Image(nsImage: image).interpolation(.none).resizable().scaledToFit().frame(width: 220, height: 220).padding(10).background(.white)
-                    Button("取消扫码") { model.cancelLogin() }
-                } else {
-                    Button("红果扫码登录") { model.beginLogin() }.disabled(model.busy || model.accountBusy)
-                }
-            }
-            Text(model.accountMessage).font(.caption).foregroundStyle(.secondary)
         }
     }
 }

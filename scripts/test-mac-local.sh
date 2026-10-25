@@ -6,10 +6,10 @@ TESTDIR=$(mktemp -d)
 trap 'rm -rf "$TESTDIR"' EXIT
 swiftc -parse-as-library "$ROOT/Sources/Models.swift" "$ROOT/Sources/LocalLibrary.swift" "$ROOT/tests/LibraryTests.swift" -o "$TESTDIR/library"
 "$TESTDIR/library"
-swiftc -parse-as-library "$ROOT/Sources/MacUpdates.swift" "$ROOT/tests/MacUpdateTests.swift" -o "$TESTDIR/updates"
+swiftc -parse-as-library "$ROOT/Sources/GUI/MacUpdates.swift" "$ROOT/tests/MacUpdateTests.swift" -o "$TESTDIR/updates"
 "$TESTDIR/updates"
 SOURCES=()
-for source in "$ROOT/Sources/"*.swift "$ROOT/Sources/"Crypto/*.swift "$ROOT/Sources/"Protocols/*.swift "$ROOT/Sources/"Media/*.swift "$ROOT/Sources/"Account/*.swift; do
+for source in "$ROOT/Sources/"*.swift "$ROOT/Sources/"Crypto/*.swift "$ROOT/Sources/"Protocols/*.swift "$ROOT/Sources/"Media/*.swift "$ROOT/Sources/"Account/*.swift "$ROOT/Sources/"GUI/*.swift; do
     if [ "$(basename "$source")" != App.swift ]; then SOURCES+=("$source"); fi
 done
 swiftc -parse-as-library "${SOURCES[@]}" "$ROOT/tests/CloudHistoryTests.swift" -o "$TESTDIR/cloud"

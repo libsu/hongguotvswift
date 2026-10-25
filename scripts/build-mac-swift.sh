@@ -20,6 +20,7 @@ swiftc -parse-as-library -O -target "$(uname -m)-apple-macosx13.0" \
     "$ROOT/Sources/"Protocols/*.swift \
     "$ROOT/Sources/"Media/*.swift \
     "$ROOT/Sources/"Account/*.swift \
+    "$ROOT/Sources/"GUI/*.swift \
     -o "$APP/Contents/MacOS/HongGuo"
 
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"

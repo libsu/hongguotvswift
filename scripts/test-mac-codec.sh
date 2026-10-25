@@ -7,7 +7,7 @@ OUT="$ROOT/outputs/mac/codec-test"
 mkdir -p "$OUT"
 
 SOURCES=()
-for source in "$ROOT/Sources/"*.swift "$ROOT/Sources/"Crypto/*.swift "$ROOT/Sources/"Protocols/*.swift "$ROOT/Sources/"Media/*.swift "$ROOT/Sources/"Account/*.swift; do
+for source in "$ROOT/Sources/"*.swift "$ROOT/Sources/"Crypto/*.swift "$ROOT/Sources/"Protocols/*.swift "$ROOT/Sources/"Media/*.swift "$ROOT/Sources/"Account/*.swift "$ROOT/Sources/"GUI/*.swift; do
     if [ "$(basename "$source")" != App.swift ]; then SOURCES+=("$source"); fi
 done
 
