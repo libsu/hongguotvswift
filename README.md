@@ -32,7 +32,7 @@
 hongguotvswift/
 ├── Sources/
 │   ├── GUI/            # macOS 前端（AppKit/SwiftUI 视图与平台集成）
-│   ├── tvOS/           # tvOS 前端（UIKit/SwiftUI 骨架）
+│   ├── tvOS/           # tvOS 前端（SwiftUI 遥控器焦点导航 + AVPlayerViewController 播放）
 │   ├── Crypto/         # 签名 / 加密 / SM3（纯逻辑）
 │   ├── Protocols/      # 协议层（纯逻辑）
 │   ├── Media/          # 取流 / 解密 / 编码判断（纯逻辑，AVFoundation）

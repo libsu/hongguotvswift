@@ -189,7 +189,7 @@ TVPlayerView (SwiftUI)
 
 - 新建 `Sources/tvOS/`：
   - `TVApp.swift` — tvOS `@main` 入口（`WindowGroup`）+ `TVPlatformIntegration`（占位实现 `ModelPlatformInterface`）。
-  - `TVRootView.swift` — 根视图：`showDetail` 切换首页/播放器；`TVHomeView` 含启动状态 + 搜索 + 结果列表。
+  - `TVShelfViews.swift`（含 `TVRootView`/`TVLibraryView`/`TVNavBar` 及各栏目视图）、`TVDesignSystem.swift`（`TVLayout`/`TVFX`/`TVControlState`/`TVControlStyle`）、`TVComponents.swift`（`TVCapsuleButton` 通用胶囊按钮、筛选/页签胶囊、空态/加载态/状态栏）、`TVPosterGrid.swift`（海报网格/卡片）、`TVSections.swift`（栏目三段式容器 + 「我的」数据扩展）——根视图由 `showDetail` 切换首页/播放器，各栏目含焦点导航与搜索。
   - `TVPlayerView.swift` — `AVPlayerViewController` 封装（`TVPlayerViewController: UIViewControllerRepresentable`），复用逻辑层 `ResourceLoader` 取流/解密。
 - 新建 `scripts/build-tv-swift.sh`：编译逻辑层 + `Sources/tvOS/`，排除 `Sources/GUI/`，target `arm64-apple-tvos17.0`。
 - 新建 `TVInfo.plist`：tvOS 必需的 `UILaunchScreen`、`UIRequiredDeviceCapabilities` 等键。
@@ -199,3 +199,35 @@ TVPlayerView (SwiftUI)
 - **当前开发机只有 Command Line Tools，无完整 Xcode / tvOS SDK**，因此无法在本机编译验证 tvOS 产物。
 - 逻辑层已跨平台就绪、tvOS 骨架代码已就位；在安装完整 Xcode（`xcodebuild -downloadPlatform tvOS`）后，运行 `bash scripts/build-tv-swift.sh` 即可首次编译 tvOS。
 - 尚未完成（后续里程碑）：M2 完整首页/搜索/榜单焦点导航、M3 播放器悬浮控件、M4 登录扫码 UI。
+
+---
+
+## 11. tvOS 布局规范（1080p · 百分比）
+
+> tvOS 只跑 1920×1080 全屏，布局极简、单层、默认靠左。所有尺寸用**百分比相对屏幕高度（vh）**计算，避免硬编码 pt。
+
+### 11.1 主界面（上→下四区，默认靠左）
+
+| 区       | 内容                                                                 | 占高（vh） | 说明                                |
+| -------- | -------------------------------------------------------------------- | ---------- | ----------------------------------- |
+| a 导航区 | 首页 / 找剧 / 榜单 + 搜索输入组件                                    | ~8.5vh     | 靠左排页签，右侧搜索输入框          |
+| b 筛选区 | 推荐/真人剧/漫剧（首页）、换一批、开始刷剧；找剧/榜单的类型+题材胶囊 | ~6.5vh     | 胶囊平铺靠左，自动换行              |
+| c 卡片区 | 剧集卡片（单行横向滚动，海报竖版 2:3）                               | ~70vh      | 卡片占满本区高度，宽度按 2:3 自适应 |
+| d 信息区 | 状态/提示文本（单行、不换行、靠左）                                  | ~4.5vh     | `TVStatusBar`                       |
+
+- 剩余高度作为区与区之间的留白（spacing ≈ 2vh）。
+- 所有内容 `.frame(maxWidth: .infinity, alignment: .leading)`（默认靠左「start」）。
+- 卡片封面高度 = 卡片区高度 − 文字区固定高度，宽度 = 封面高 × 2/3。
+
+### 11.2 播放器（自绘控件）
+
+- **顶部**：返回 + 剧名 + 小字「当前集 / 总集」，靠左。
+- **底部**：播放/暂停 → 上一集/下一集 → 选集 → 收藏 → 清晰度 → 倍速 → 相关作品（按使用频率从左到右）；上方一行时间 + 自绘进度条。
+- **默认显示**：进入播放页时底部控件即显示可激活；**无任何操作（Remote 无焦点移动/按键）一段时间后自动隐藏**；任一操作（方向键/Play/Pause）重新显示。
+- 系统 `AVPlayerViewController.showsPlaybackControls = false`，完全自绘（tvOS 无投屏/画中画/全屏入口）。
+- 清晰度默认 1080P。
+
+### 11.3 焦点（tvOS 焦点系统）
+
+- 每个可聚焦元素用 `.focused(_:equals:)` 绑定到**同一 `@FocusState`**（同一 scope），确保遥控器上下左右可在各区之间导航。
+- 焦点视觉：聚焦时白底黑字（`white 0.88` + `black 0.88`），未聚焦半透明白字；不使用 `scaleEffect`（避免挤压相邻元素）。

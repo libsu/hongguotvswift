@@ -31,7 +31,7 @@ enum SessionKeychain {
         var value: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &value)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = value as? Data else { throw failure() }
+        guard status == errSecSuccess, let data = value as? Data else { throw failure(status) }
         return String(data: data, encoding: .utf8)
     }
     static func save(_ value: String) throws {
@@ -46,14 +46,18 @@ enum SessionKeychain {
             #else
             entry[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             #endif
-            guard SecItemAdd(entry as CFDictionary, nil) == errSecSuccess else { throw failure() }
-        } else if status != errSecSuccess { throw failure() }
+            let addStatus = SecItemAdd(entry as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw failure(addStatus) }
+        } else if status != errSecSuccess { throw failure(status) }
     }
     static func delete() throws {
         let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw failure() }
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw failure(status) }
     }
-    private static func failure() -> Error { NSError(domain: "HongguoKeychain", code: 1, userInfo: [NSLocalizedDescriptionKey: "登录态钥匙串操作失败，请检查系统授权。账号仍可在本次会话使用。"] ) }
+    private static func failure(_ status: OSStatus? = nil) -> Error {
+        let code = status.map { "（OSStatus \($0)）" } ?? ""
+        return NSError(domain: "HongguoKeychain", code: 1, userInfo: [NSLocalizedDescriptionKey: "登录态钥匙串操作失败\(code)，请检查系统授权。账号仍可在本次会话使用。"] )
+    }
 }
 
 extension Model {
@@ -89,7 +93,10 @@ extension Model {
                         accountMessage = "登录成功，播放进度会定期上传。"
                         if let credentials = result.credentials {
                             do { try SessionKeychain.save(credentials) }
-                            catch { accountMessage = "已登录，但登录态未能保存到钥匙串；下次可能需要重新扫码。" }
+                            catch {
+                                Log.shared.warn("保存登录态到钥匙串失败：\(error.localizedDescription)")
+                                accountMessage = "已登录，但登录态未能保存到钥匙串（\(error.localizedDescription)）；下次可能需要重新扫码。"
+                            }
                         }
                         return
                     }

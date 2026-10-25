@@ -5,7 +5,7 @@
 import SwiftUI
 import AVKit
 
-/// tvOS 平台集成：占位实现 ModelPlatformInterface，规避 macOS 的 AppKit 集成。
+/// tvOS 平台集成：实现 ModelPlatformInterface，规避 macOS 的 AppKit 集成。
 /// tvOS 无 JVM Helper、无全局键盘监听、无自更新；画中画/全屏由系统 AVPlayerViewController 接管。
 @MainActor
 final class TVPlatformIntegration: ModelPlatformInterface {
@@ -31,6 +31,10 @@ struct HongGuoTV: App {
     @StateObject private var model: Model
 
     init() {
+        // tvOS 默认清晰度 1080P（仅当用户从未手动设置过时生效，尊重用户后续选择）。
+        if UserDefaults.standard.object(forKey: "playbackQuality") == nil {
+            UserDefaults.standard.set(1080, forKey: "playbackQuality")
+        }
         let model = Model()
         let platform = TVPlatformIntegration(model: model)
         model.platformInterface = platform
