@@ -14,6 +14,8 @@ final class RecommendationCursor {
     init(session: String = "", offset: Int = 0) {
         self.session = session; self.offset = offset
     }
+    /// 设计目标：克隆当前游标生成「下一批」副本（对应 上游 RecommendationCursor）。
+    /// 当前分页直接原地推进 cursor（offset/session），未使用此副本；保留以对齐上游语义，便于未来无副作用分页。
     func nextBatch() -> RecommendationCursor {
         let c = RecommendationCursor(session: session, offset: offset)
         c.seen = seen

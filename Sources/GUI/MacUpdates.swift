@@ -38,7 +38,7 @@ struct MacManifest: Decodable {
 }
 // A separate stable asset prevents the TV Latest release from selecting a Mac-only package.
 @MainActor final class MacUpdates: ObservableObject {
-    @Published var status = "Mac 更新独立发布，TV 仍为主要维护目标"
+    @Published var status = ""
     @Published var busy = false
     @Published var available: MacManifest?
     /// 是否自动检查更新，默认关闭，仅用户手动开启后才会在启动时自动检查。

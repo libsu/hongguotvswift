@@ -16,6 +16,8 @@ import AVFoundation
     @Published var playerControlsVisible = true
     @Published var infoPanelOpen = false
     @Published var pipActive = false
+    /// 播放控件自动隐藏定时任务：显示控件后 2.5 秒无操作则淡出。
+    var controlsHideTask: Task<Void, Never>?
     lazy var comments = MacComments { [weak self] series, episode in
         guard let self else { throw URLError(.cancelled) }
         return try await self.request("comments", ["series": series, "episode": episode])
@@ -65,9 +67,13 @@ import AVFoundation
     var catalogPage = 1
     var catalogKind = ""
     var relatedTask: Task<Void, Never>?
+    /// 目录后台刷新任务（命中缓存后的非阻塞刷新，不占用 busy）。
+    var catalogRefreshTask: Task<Void, Never>?
     @Published var speed: Float = UserDefaults.standard.object(forKey: "playbackSpeed") as? Float ?? 1
     @Published var quality: Int = UserDefaults.standard.object(forKey: "playbackQuality") as? Int ?? 0
-    @Published var autoNext = UserDefaults.standard.object(forKey: "autoNext") as? Bool ?? true
+    @Published var autoNext = UserDefaults.standard.object(forKey: "autoNext") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoNext, forKey: "autoNext") }
+    }
     @Published var actualQuality = ""
     private var activeSeries: Series?
     private var activeEpisodeID: String?
@@ -281,12 +287,13 @@ import AVFoundation
     func open(_ series: Series, trial: Bool = false) {
         perform {
             self.comments.clear(); self.commentThread.clear(); self.danmaku.clear()
+            // 立即保存并停止旧节目，避免加载详情期间旧节目还在播放。
+            self.saveProgress()
+            self.player.pause(); self.player.replaceCurrentItem(with: nil)
             self.message = "正在读取剧集…"
             let detail: Detail
             if trial, let cached = self.homeWarmDetail, cached.series.id == series.id, self.homeWarmQuality == self.quality { detail = cached }
             else { detail = try await self.request("detail", ["id": series.id]) }
-            self.saveProgress()
-            self.player.pause(); self.player.replaceCurrentItem(with: nil)
             self.activeSeries = nil; self.activeEpisodeID = nil; self.activeEpisodeIndex = nil
             self.pendingNext = false
             self.warmedNearEndKey = nil
@@ -432,12 +439,6 @@ import AVFoundation
         if catalogRows.indices.contains(index + delta) { open(catalogRows[index + delta], trial: true) }
         else if delta > 0 && section == "首页" && catalogMore { loadHome(more: true) }
         else { message = "当前批次已到边界，可以换一批" }
-    }
-    var resumeLabel: String {
-        if let cloudResume { return "继续账号第 \(cloudResume.0 + 1) 集" }
-        guard let detail, let saved = library.history(detail.series.id) else { return "从第 1 集播放" }
-        let index = saved.completed && saved.episodeIndex + 1 < detail.episodes.count ? saved.episodeIndex + 1 : saved.episodeIndex
-        return "继续第 \(index + 1) 集"
     }
     func resume() {
         guard let detail else { return }

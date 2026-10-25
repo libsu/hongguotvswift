@@ -10,23 +10,12 @@ private final class PlaybackWindow: NSWindow {
 @MainActor final class FullscreenPlayback: NSObject, ObservableObject, NSWindowDelegate {
     let player: AVPlayer
     weak var model: Model?
-    @Published var controlsVisible = true
-    @Published var playing = false
-    @Published var panelOpen = false
-    @Published var commentsOpen = false
-    @Published var position: Double = 0
-    @Published var duration: Double = 0
-    private var timer: Task<Void, Never>?
-    private var observer: Any?
     private var monitor: Any?
     private var window: NSWindow?
     init(player: AVPlayer, model: Model? = nil) { self.player = player; self.model = model; super.init() }
     func show() {
         guard window == nil else { window?.makeKeyAndOrderFront(nil); return }
-        let now = player.currentTime().seconds, length = player.currentItem?.duration.seconds ?? 0
-        position = now.isFinite ? max(0, now) : 0
-        duration = length.isFinite ? max(0, length) : 0
-        playing = player.rate > 0
+        guard let model else { return }
         let source = NSApp.keyWindow
         let alreadyFullscreen = source?.styleMask.contains(.fullScreen) == true
         let screen = source?.screen ?? NSScreen.main ?? NSScreen.screens[0]
@@ -39,44 +28,24 @@ private final class PlaybackWindow: NSWindow {
         window.backgroundColor = .black
         window.level = alreadyFullscreen ? .floating : .normal
         window.acceptsMouseMovedEvents = true
-        window.contentView = NSHostingView(rootView: FullscreenSurface(playback: self))
+        window.contentView = NSHostingView(rootView: FullscreenSurface(playback: self, model: model))
         self.window = window
         window.makeKeyAndOrderFront(nil)
         if !alreadyFullscreen { window.toggleFullScreen(nil) }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .leftMouseDragged, .keyDown]) { [weak self] event in
             guard let self, event.window === self.window else { return event }
             if event.type == .keyDown && event.keyCode == 53 {
-                if self.panelOpen || self.commentsOpen { self.panelOpen = false; self.commentsOpen = false; self.revealControls() } else { self.close() }; return nil
+                if self.model?.infoPanelOpen == true { self.model?.infoPanelOpen = false; self.revealControls() } else { self.close() }; return nil
             }
             // 播放/暂停、方向键已由 Model 的全局键盘监听统一处理，此处不再重复，避免双重切换。
             self.revealControls()
             return event
         }
-        observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.playing = self.player.rate > 0
-                self.position = time.seconds.isFinite ? time.seconds : 0
-                let seconds = self.player.currentItem?.duration.seconds ?? 0
-                self.duration = seconds.isFinite ? max(0, seconds) : 0
-            }
-        }
         revealControls()
     }
     func revealControls() {
-        controlsVisible = true; timer?.cancel()
-        timer = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-                guard !Task.isCancelled, let self else { return }
-                if self.panelOpen || self.commentsOpen || NSEvent.pressedMouseButtons != 0 { self.revealControls() }
-                else { self.controlsVisible = false }
-        }
-    }
-    func togglePlayback() {
-        if let model { model.togglePlayback() }
-        else if player.rate > 0 { player.pause() } else { player.play() }
-        playing = player.rate > 0
-        revealControls()
+        // 鼠标按住拖动时保持显示（否则拖到一半控件消失）。
+        model?.revealPlayerControls(keepVisible: NSEvent.pressedMouseButtons != 0)
     }
     func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions) -> NSApplication.PresentationOptions {
         [.fullScreen, .autoHideDock, .autoHideMenuBar]
@@ -84,9 +53,8 @@ private final class PlaybackWindow: NSWindow {
     func windowDidExitFullScreen(_ notification: Notification) { close() }
     func windowWillClose(_ notification: Notification) { cleanup(); window?.contentView = nil; window = nil }
     private func cleanup() {
-        panelOpen = false; commentsOpen = false
-        timer?.cancel(); timer = nil
-        if let observer { player.removeTimeObserver(observer); self.observer = nil }
+        model?.infoPanelOpen = false
+        model?.playerControlsVisible = true
         if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
     }
     func close() {
@@ -113,98 +81,48 @@ private struct CleanVideo: NSViewRepresentable {
 }
 private struct FullscreenSurface: View {
     @ObservedObject var playback: FullscreenPlayback
+    @ObservedObject var model: Model
     var body: some View {
         ZStack {
             Color.black
             CleanVideo(player: playback.player)
-            if let model = playback.model { DanmakuOverlay(model: model, danmaku: model.danmaku) }
-            if playback.controlsVisible {
+            DanmakuOverlay(model: model, danmaku: model.danmaku)
+            // 右上角退出全屏入口——与上下控件一起随 playerControlsVisible 自动隐藏。
+            if model.playerControlsVisible {
                 VStack {
                     HStack {
-                        if let model = playback.model { FullscreenTitle(model: model) }
                         Spacer()
-                        Button { playback.close() } label: { Image(systemName: "arrow.down.right.and.arrow.up.left") }
-                            .help("退出全屏 · Esc")
-                    }.padding(24).background(LinearGradient(colors: [.black.opacity(0.8), .clear], startPoint: .top, endPoint: .bottom))
-                    Spacer()
-                    VStack(spacing: 16) {
-                        Slider(value: Binding(get: { min(playback.position, max(1, playback.duration)) }, set: { value in
-                            playback.player.seek(to: CMTime(seconds: value, preferredTimescale: 600)); playback.revealControls()
-                        }), in: 0...max(1, playback.duration))
-                        HStack(spacing: 20) {
-                            Button { playback.togglePlayback() } label: { Image(systemName: playback.playing ? "pause.fill" : "play.fill").font(.title2) }
-                                .help(playback.playing ? "暂停" : "播放")
-                            Text("\(clock(playback.position)) / \(clock(playback.duration))").monospacedDigit()
-                            Spacer()
-                            if let model = playback.model { FullscreenSettings(model: model, playback: playback) }
-                        }
-                    }.padding(24).background(LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom))
-                }
-            }
-            if playback.commentsOpen, let model = playback.model {
-                HStack { Spacer()
-                    VStack(spacing: 0) {
-                        HStack { Spacer(); Button { playback.commentsOpen = false; playback.revealControls() } label: { Image(systemName: "xmark") } }.padding(16)
-                        CommentsPanel(model: model, comments: model.comments, thread: model.commentThread)
-                    }.frame(width: 420).background(.black.opacity(0.95)).padding(.vertical, 50)
-                }
-            }
-            if playback.panelOpen, let model = playback.model {
-                HStack { Spacer(); FullscreenEpisodes(model: model, playback: playback).frame(width: 340) }
-            }
-        }.buttonStyle(.borderless).ignoresSafeArea().preferredColorScheme(.dark).tint(.orange)
-    }
-    private func clock(_ value: Double) -> String { let seconds = Int(max(0, value)); return String(format: "%02d:%02d", seconds / 60, seconds % 60) }
-}
-private struct FullscreenTitle: View {
-    @ObservedObject var model: Model
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(model.detail?.series.title ?? "播放").font(.title2.bold()).lineLimit(1)
-            Text("第 \((model.episode ?? 0) + 1) 集 · 共 \(model.detail?.episodes.count ?? 0) 集\(model.preview ? " · 首集试播" : "")").foregroundStyle(.secondary)
-        }
-    }
-}
-private struct FullscreenSettings: View {
-    @ObservedObject var model: Model
-    @ObservedObject var playback: FullscreenPlayback
-    var body: some View {
-        Group {
-            if model.preview { Button("观看全集") { model.watchFull(); playback.panelOpen = true } }
-            DanmakuControl(danmaku: model.danmaku)
-            Button("评论") { playback.commentsOpen.toggle(); playback.panelOpen = false; playback.revealControls() }
-            Button("选集") { playback.panelOpen.toggle(); playback.commentsOpen = false; playback.revealControls() }
-            Menu("\(String(model.quality))P") {
-                ForEach([480,720,1080], id: \.self) { quality in Button("\(quality)P") { model.changeQuality(quality); playback.revealControls() } }
-            }.disabled(model.busy)
-            Menu("\(model.speed, specifier: "%g")×") {
-                ForEach([Float(0.5),0.75,1,1.25,1.5,2], id: \.self) { speed in Button("\(speed, specifier: "%g")×") { model.changeSpeed(speed); playback.revealControls() } }
-            }
-        }
-    }
-}
-private struct FullscreenEpisodes: View {
-    @ObservedObject var model: Model
-    @ObservedObject var playback: FullscreenPlayback
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text("选集 · 共 \(model.detail?.episodes.count ?? 0) 集").font(.headline)
-                Spacer()
-                Button { playback.panelOpen = false; playback.revealControls() } label: { Image(systemName: "xmark") }
-            }
-            Text(model.detail?.series.title ?? "").font(.headline).lineLimit(2)
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 72))], spacing: 12) {
-                    ForEach(model.detail?.episodes.indices ?? 0..<0, id: \.self) { index in
-                        Button("\(index + 1)") { model.play(index); playback.panelOpen = false; playback.revealControls() }
-                            .buttonStyle(.bordered).controlSize(.large)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .tint(model.episode == index ? .orange : .gray).disabled(model.busy)
+                        Button { playback.close() } label: {
+                            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(8)
+                                .background(.black.opacity(0.5), in: Circle())
+                        }.help("退出全屏 · Esc").buttonStyle(.plain).padding(12)
                     }
+                    Spacer()
                 }
+                .transition(.opacity)
             }
-        }.padding(24).background(.black.opacity(0.94)).padding(.vertical, 60)
+            // 顶部渐变栏（自动隐藏）——与非全屏一致。
+            if model.playerControlsVisible {
+                VStack { PlayerTopBar(model: model); Spacer() }
+                    .transition(.opacity)
+            }
+            // 底部渐变栏（自动隐藏）——与非全屏一致。
+            if let detail = model.detail, model.playerControlsVisible {
+                VStack { Spacer(); PlayerBottomBar(model: model, library: model.library, detail: detail, showsTransport: false) }
+                    .transition(.opacity)
+            }
+            // 底部信息面板（选集/简介/相关作品）——与非全屏一致。
+            if let detail = model.detail, model.infoPanelOpen {
+                VStack { Spacer(); PlayerInfoPanel(model: model, library: model.library, detail: detail) }
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: model.playerControlsVisible)
+        .animation(.easeInOut(duration: 0.25), value: model.infoPanelOpen)
+        .buttonStyle(.borderless).ignoresSafeArea().preferredColorScheme(.dark).tint(.white)
     }
 }
 
@@ -281,11 +199,12 @@ struct ImmersiveVideo: NSViewRepresentable {
         context.coordinator.model = model
 
         // 创建并持有系统画中画控制器，供底部栏 PiP 按钮触发。
+        // 委托交给 Model 长期持有的 pipSession，避免视图销毁时委托悬空；
+        // 停止 pip 后再由 pipSession 延迟释放承载视图，避免 pip 活跃时释放 AVPlayerLayer 崩溃。
         if AVPictureInPictureController.isPictureInPictureSupported(),
            let pip = AVPictureInPictureController(playerLayer: view.playerLayer) {
-            pip.delegate = context.coordinator
-            context.coordinator.pip = pip
             model?.pipController = pip
+            model?.pipSession.attach(pip: pip)
         }
         return view
     }
@@ -296,24 +215,13 @@ struct ImmersiveVideo: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ view: PlayerLayerView, coordinator: Coordinator) {
-        coordinator.pip?.stopPictureInPicture()
-        coordinator.pip?.delegate = nil
-        coordinator.pip = nil
-        coordinator.model?.pipController = nil
-        view.playerLayer.player = nil
+        // 视图销毁交由 pipSession 处理：pip 活跃时延迟到 didStop 后再释放，避免崩溃。
+        coordinator.model?.pipSession.retire(view)
     }
 
-    final class Coordinator: NSObject, AVPictureInPictureControllerDelegate {
+    final class Coordinator: NSObject {
         weak var view: PlayerLayerView?
         weak var model: Model?
-        var pip: AVPictureInPictureController?
-
-        func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-            Task { @MainActor in self.model?.pipActive = true }
-        }
-        func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-            Task { @MainActor in self.model?.pipActive = false }
-        }
     }
 }
 
@@ -330,15 +238,19 @@ final class PlayerLayerView: NSView {
     var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
 }
 
-/// 透明点击层：点击画面切换控件显隐。
+/// 透明交互层：点击画面切换控件显隐；鼠标移动时显示控件并刷新自动隐藏计时（与全屏一致 2.5 秒）。
 struct PlayerTapLayer: View {
     @ObservedObject var model: Model
     var body: some View {
         Color.clear.contentShape(Rectangle())
             .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    model.playerControlsVisible.toggle()
-                    if model.playerControlsVisible == false { model.infoPanelOpen = false }
+                if model.playerControlsVisible { model.hidePlayerControls() }
+                else { model.revealPlayerControls() }
+            }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active: model.revealPlayerControls()
+                case .ended: break
                 }
             }
     }
@@ -360,11 +272,13 @@ struct PlayerTopBar: View {
     }
 }
 
-/// 底部渐变栏：进度条、播放/暂停、时间、选集/下一集/弹幕/收藏/清晰度/倍速、PiP/投屏。
+/// 底部渐变栏：进度条、播放/暂停、时间、选集/下一集/收藏/弹幕/清晰度/倍速、PiP/投屏。
 struct PlayerBottomBar: View {
     @ObservedObject var model: Model
     @ObservedObject var library: LocalLibrary
     let detail: Detail
+    /// 是否显示画中画（PiP）与投屏（AirPlay）。全屏播放不显示这两个系统级传输控件。
+    var showsTransport: Bool = true
 
     private enum PickerKind { case quality, speed }
     @State private var expandedPicker: PickerKind? = nil
@@ -372,19 +286,19 @@ struct PlayerBottomBar: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in
             VStack(spacing: 12) {
-                Slider(value: Binding(
-                    get: { model.player.currentTime().seconds.isFinite ? model.player.currentTime().seconds : 0 },
-                    set: { model.player.seek(to: CMTime(seconds: $0, preferredTimescale: 600)) }
-                ), in: 0...max(1, duration))
-                .tint(.orange)
                 HStack(spacing: 18) {
                     Button { model.togglePlayback() } label: {
                         Image(systemName: model.player.rate > 0 ? "pause.fill" : "play.fill").font(.title2)
                     }.help(model.player.rate > 0 ? "暂停" : "播放").buttonStyle(.borderless)
                     Text("\(clock(model.player.currentTime().seconds)) / \(clock(duration))").monospacedDigit().font(.caption).foregroundStyle(.secondary)
-                    Spacer()
+                    // 进度条：位于时间之后、选集之前，占据中间剩余宽度。
+                    Slider(value: Binding(
+                        get: { model.player.currentTime().seconds.isFinite ? model.player.currentTime().seconds : 0 },
+                        set: { model.player.seek(to: CMTime(seconds: $0, preferredTimescale: 600)) }
+                    ), in: 0...max(1, duration))
+                    .tint(.white)
                     // 选集 + 下一集（正式观看）
-                    Button { model.infoPanelOpen.toggle(); model.playerControlsVisible = true } label: {
+                    Button { model.infoPanelOpen.toggle(); model.revealPlayerControls() } label: {
                         Image(systemName: "list.bullet").font(.body)
                     }.help("选集").buttonStyle(.borderless)
                     if !model.preview, let episode = model.episode {
@@ -393,22 +307,24 @@ struct PlayerBottomBar: View {
                         }.help("下一集").buttonStyle(.borderless)
                             .disabled(episode + 1 >= detail.episodes.count)
                     }
-                    DanmakuControl(danmaku: model.danmaku)
                     // 评论入口暂时隐藏。
                     Button { model.toggleFavorite(detail.series) } label: {
                         Image(systemName: model.favoriteActive(detail.series) ? "star.fill" : "star")
-                            .foregroundStyle(model.favoriteActive(detail.series) ? .orange : .white)
+                            .foregroundStyle(model.favoriteActive(detail.series) ? .white : Color.white.opacity(0.45))
                     }.help(model.favoriteActive(detail.series) ? "取消收藏" : "收藏").buttonStyle(.borderless)
+                    DanmakuControl(danmaku: model.danmaku)
                     // 清晰度（自绘展开胶囊）
                     pickerCapsule(icon: "4k.tv", text: qualityLabel, kind: .quality)
                     // 倍速（自绘展开胶囊）
                     pickerCapsule(icon: "gauge.with.dots.needle.50percent", text: speedText(model.speed), kind: .speed)
-                    // 画中画（PiP）
-                    Button { model.togglePictureInPicture() } label: {
-                        Image(systemName: model.pipActive ? "pip.exit" : "pip.enter").font(.body)
-                    }.help("画中画").buttonStyle(.borderless)
-                    // 投屏（系统路由选择器，一键唤起设备面板，等同 QuickTime 电视图标）
-                    AirPlayPicker().frame(width: 32, height: 26)
+                    if showsTransport {
+                        // 画中画（PiP）
+                        Button { model.togglePictureInPicture() } label: {
+                            Image(systemName: model.pipActive ? "pip.exit" : "pip.enter").font(.body)
+                        }.help("画中画").buttonStyle(.borderless)
+                        // 投屏（系统路由选择器，一键唤起设备面板，等同 QuickTime 电视图标）
+                        AirPlayPicker().frame(width: 32, height: 26)
+                    }
                 }
                 // 自绘展开选项行（清晰度 / 倍速）
                 if let picker = expandedPicker {
@@ -418,6 +334,7 @@ struct PlayerBottomBar: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 14)
             .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
+            .tint(.white)
         }
     }
 
@@ -426,7 +343,7 @@ struct PlayerBottomBar: View {
     private func pickerCapsule(icon: String, text: String, kind: PickerKind) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) { expandedPicker = (expandedPicker == kind) ? nil : kind }
-            model.playerControlsVisible = true
+            model.revealPlayerControls()
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: icon).font(.caption)
@@ -434,8 +351,8 @@ struct PlayerBottomBar: View {
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).opacity(0.6)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(expandedPicker == kind ? .orange.opacity(0.9) : Color.white.opacity(0.14), in: Capsule())
-            .foregroundStyle(expandedPicker == kind ? .black : .white)
+            .background(expandedPicker == kind ? Color.white.opacity(0.85) : Color.white.opacity(0.14), in: Capsule())
+            .foregroundStyle(expandedPicker == kind ? Color.black.opacity(0.85) : .white)
         }.buttonStyle(.plain)
     }
 
@@ -461,8 +378,8 @@ struct PlayerBottomBar: View {
         Button(action: onSelect) {
             Text(text).font(.caption).fontWeight(.medium)
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(selected ? Color.orange : Color.white.opacity(0.14), in: Capsule())
-                .foregroundStyle(selected ? Color.black : Color.white)
+                .background(selected ? Color.white.opacity(0.85) : Color.white.opacity(0.14), in: Capsule())
+                .foregroundStyle(selected ? Color.black.opacity(0.85) : Color.white)
         }.buttonStyle(.plain)
     }
 
@@ -501,27 +418,38 @@ struct PlayerInfoPanel: View {
     let detail: Detail
 
     var body: some View {
+        let current = model.episode ?? 0
+        let total = detail.episodes.count
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
+            // 标题行：标题 + 当前/总集数 + 上一集/下一集 + 自动下一集 + 关闭。
+            HStack(spacing: 12) {
                 Label("选集", systemImage: "list.bullet").font(.headline)
-                Text("共 \(detail.episodes.count) 集").font(.callout).foregroundStyle(.secondary)
+                Text("当前第 \(current + 1) 集 / 共 \(total) 集").font(.callout).foregroundStyle(.secondary)
                 Spacer()
+                // 上一集 / 下一集：复用 play(_:) 切换集，越界时禁用。
+                Button { model.play(current - 1); model.infoPanelOpen = false } label: {
+                    Image(systemName: "backward.end.fill").font(.body)
+                }.help("上一集").buttonStyle(.borderless).disabled(current <= 0 || model.busy)
+                Button { model.play(current + 1); model.infoPanelOpen = false } label: {
+                    Image(systemName: "forward.end.fill").font(.body)
+                }.help("下一集").buttonStyle(.borderless).disabled(current + 1 >= total || model.busy)
+                // 连播：复用现有开关，持久化由 Model.autoNext 的 didSet 统一处理。
+                Toggle("连播", isOn: $model.autoNext)
                 Button { model.infoPanelOpen = false } label: {
                     Image(systemName: "xmark").font(.body)
                 }.help("关闭").buttonStyle(.borderless)
             }
-            HStack {
-                Button(model.resumeLabel) { model.resume(); model.infoPanelOpen = false }.disabled(model.busy)
-                Spacer()
-                Toggle("自动下一集", isOn: $model.autoNext).onChange(of: model.autoNext) { UserDefaults.standard.set($0, forKey: "autoNext") }
-            }
+            // 选集网格：固定 8 列等宽、紧凑间距，当前集突出显示。
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 52))], spacing: 10) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
                     ForEach(detail.episodes.indices, id: \.self) { index in
-                        Button("\(index + 1)") { model.play(index); model.infoPanelOpen = false }
-                            .buttonStyle(.bordered).controlSize(.large)
-                            .frame(maxWidth: .infinity, minHeight: 40)
-                            .tint(model.episode == index ? .orange : .gray).disabled(model.busy)
+                        Button { model.play(index); model.infoPanelOpen = false } label: {
+                            Text("\(index + 1)")
+                                .font(.subheadline).fontWeight(model.episode == index ? .semibold : .regular)
+                                .frame(maxWidth: .infinity, minHeight: 34)
+                                .background(model.episode == index ? Color.white.opacity(0.85) : Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                .foregroundStyle(model.episode == index ? Color.black.opacity(0.85) : Color.white)
+                        }.buttonStyle(.plain).disabled(model.busy)
                     }
                 }.padding(4)
             }.frame(maxHeight: 200)

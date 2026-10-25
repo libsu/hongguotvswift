@@ -38,10 +38,10 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 if model.section == "首页" && (model.preview || !model.showDetail) {
                     HomeFeedView(model: model, library: library)
-                } else if model.section == "我的" {
-                    MyAccountView(model: model, library: library, updates: updates)
                 } else if model.showDetail, let detail = model.detail {
                     EpisodeView(model: model, library: library, detail: detail)
+                } else if model.section == "我的" {
+                    MyAccountView(model: model, library: library, updates: updates)
                 } else { libraryView }
                 Divider()
                 HStack(spacing: 10) {
@@ -49,7 +49,8 @@ struct ContentView: View {
                     Text(library.error ?? model.message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     Spacer()
                     if let account = model.account { Label(account.nickname ?? "已登录", systemImage: "person.crop.circle").font(.caption).foregroundStyle(.secondary) }
-                }.padding(.horizontal, 20).padding(.vertical, 10)
+                }.padding(.horizontal, 20)
+                    .frame(height: 44, alignment: .center)
             }.navigationTitle(model.showDetail ? (model.detail?.series.title ?? "播放") : model.navigation)
                 .toolbar {
                     if model.showDetail {
@@ -71,7 +72,7 @@ struct ContentView: View {
         }.task {
             while model.busy && !Task.isCancelled { try? await Task.sleep(nanoseconds: 100_000_000) }
             if !Task.isCancelled && model.navigation == "搜索" && model.rows.isEmpty { model.navigate("首页") }
-        }.frame(minWidth: 1000, minHeight: 720).tint(.orange).preferredColorScheme(.dark)
+        }.frame(minWidth: 1000, minHeight: 720)
     }
     private var libraryView: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -198,11 +199,11 @@ struct ContentView: View {
                     .frame(height: 225).frame(maxWidth: .infinity).clipped().cornerRadius(10)
                 Text(series.title).font(.headline).lineLimit(2).frame(height: 40, alignment: .topLeading)
                 Text(series.badge).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                if let cloud, let index = cloud.episodeIndex { Text("账号看到第 \(index + 1) 集").font(.caption).foregroundStyle(.orange) }
-                else if let record = library.history(series.id) { Text(record.label).font(.caption).foregroundStyle(.orange) }
+                if let cloud, let index = cloud.episodeIndex { Text("账号看到第 \(index + 1) 集").font(.caption).foregroundStyle(Color.accentColor) }
+                else if let record = library.history(series.id) { Text(record.label).font(.caption).foregroundStyle(Color.accentColor) }
                 if let publish = cloud?.publishText { Text(publish).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 if model.section == "榜单", let rank = model.rankPositions[series.id] {
-                    Text([rank.rank.map { "第 \($0) 名" } ?? "", rank.heat].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.orange).lineLimit(1)
+                    Text([rank.rank.map { "第 \($0) 名" } ?? "", rank.heat].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(Color.accentColor).lineLimit(1)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(model.busy).accessibilityLabel(series.title)
@@ -217,7 +218,7 @@ struct ContentView: View {
     }
     private func emptyState<Actions: View>(_ title: String, symbol: String, detail: String, @ViewBuilder actions: () -> Actions) -> some View {
         VStack(spacing: 16) {
-            Image(systemName: symbol).font(.system(size: 42)).foregroundStyle(.orange)
+            Image(systemName: symbol).font(.system(size: 42)).foregroundStyle(Color.accentColor)
             Text(title).font(.title2.bold())
             Text(detail).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 460)
             actions()
@@ -256,38 +257,43 @@ struct EpisodeView: View {
             ImmersivePlayer(model: model)
                 .overlay { DanmakuOverlay(model: model, danmaku: model.danmaku) }
                 .overlay { PlayerTapLayer(model: model) }
-            // 右上角全屏入口（常驻）。
-            VStack {
-                HStack {
+            // 右上角全屏入口——与上下控件一起随 playerControlsVisible 自动隐藏。
+            if model.playerControlsVisible {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button { model.fullscreenPlayback.show() } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(8)
+                                .background(.black.opacity(0.5), in: Circle())
+                        }.help("全屏").buttonStyle(.plain).padding(12)
+                    }
                     Spacer()
-                    Button { model.fullscreenPlayback.show() } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(8)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }.help("全屏").buttonStyle(.plain).padding(12)
                 }
-                Spacer()
+                .transition(.opacity)
             }
             // 顶部渐变栏（自动隐藏）
             if model.playerControlsVisible {
                 VStack { PlayerTopBar(model: model); Spacer() }
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(.opacity)
             }
             // 底部渐变栏（自动隐藏）
             if model.playerControlsVisible {
                 VStack { Spacer(); PlayerBottomBar(model: model, library: library, detail: detail) }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.opacity)
             }
             // 底部信息面板（选集/简介/相关作品）
             if model.infoPanelOpen {
                 VStack { Spacer(); PlayerInfoPanel(model: model, library: library, detail: detail) }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: model.playerControlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.infoPanelOpen)
-        .preferredColorScheme(.dark)
+        // 仅播放区保持深色（视频画面 + 悬浮控件），不向上影响左侧栏/工具栏/信息栏，
+        // 那些 chrome 跟随系统深浅模式。
+        .colorScheme(.dark)
     }
 }

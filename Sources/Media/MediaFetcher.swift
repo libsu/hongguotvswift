@@ -124,8 +124,9 @@ enum MediaFetcher {
         }
     }
 
-    /// 调试用：把解密后的 MP4 头 + 开头一小段解密媒体数据拼成文件，存到日志文件夹，
-    /// 供用户用 ffprobe/MediaInfo 查看真实编码、分辨率与容器信息（不承诺可完整播放）。
+    /// 设计目标（调试）：把解密后的 MP4 头 + 开头一小段解密媒体数据拼成文件，存到日志文件夹，
+    /// 供用 ffprobe/MediaInfo 查看真实编码、分辨率与容器信息（不承诺可完整播放）。
+    /// 调用处已在主取流路径上被注释（避免写入卡顿），保留函数本体以便需要时一键启用。
     private static func saveDecryptedSampleForInspection(url: String, key: [UInt8]?, session: URLSession, prepared: MediaCrypto.Prepared, total: Int64) async {
         do {
             let header = prepared.header

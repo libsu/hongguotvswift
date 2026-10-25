@@ -11,6 +11,8 @@ final class ContentRepository {
     private let playerDevice: [String: String]
 
     private var relatedCache: [String: [RelatedWork]] = [:]
+    /// 详情页内存缓存：避免反复进入同一剧集时重复请求详情页。
+    private var detailCache: [String: (series: Series, episodes: [String])] = [:]
 
     init(http: HongguoHTTP = HongguoHTTP(), clock: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) {
         self.http = http
@@ -42,8 +44,8 @@ final class ContentRepository {
         return result
     }
 
-    private func router(_ url: String) async throws -> [String: Any] {
-        let html = try await text(url)
+    private func router(_ url: String, retryTransient: Bool = false) async throws -> [String: Any] {
+        let html = try await text(url, retryTransient: retryTransient)
         return try Self.extractRouter(html).obj("loaderData") ?? [:]
     }
 
@@ -205,7 +207,9 @@ final class ContentRepository {
 
     func detail(id: String) async throws -> (series: Series, episodes: [String]) {
         guard isValidNumericId(id) else { throw ContentError("剧集 id 异常") }
-        let o = try await router("\(site)/detail?series_id=\(id)")
+        if let cached = detailCache[id] { return cached }
+        // 详情页异常点较多（页面较慢/偶尔 504），启用跨态重试，避免一次超时就直接失败。
+        let o = try await router("\(site)/detail?series_id=\(id)", retryTransient: true)
         guard let detailPage = o.obj("detail_page"), let seriesDetail = detailPage.obj("seriesDetail") else {
             throw ContentError("剧集详情暂不可用")
         }
@@ -215,7 +219,10 @@ final class ContentRepository {
             throw ContentError("分集数据异常")
         }
         let series = card(seriesDetail)
-        return (Series(id: id, title: series.title, cover: series.cover, description: series.description, badge: series.badge, tags: series.tags), episodes)
+        let result = (Series(id: id, title: series.title, cover: series.cover, description: series.description, badge: series.badge, tags: series.tags), episodes)
+        if detailCache.count >= 32 { detailCache.removeValue(forKey: detailCache.keys.first!) }
+        detailCache[id] = result
+        return result
     }
 
     // MARK: - 相关作品

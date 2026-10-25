@@ -43,7 +43,7 @@ struct HomeFeedView: View {
                                 Text(detail.series.badge).foregroundStyle(.secondary)
                                 Button { model.toggleFavorite(detail.series) } label: {
                                     Image(systemName: model.favoriteActive(detail.series) ? "star.fill" : "star")
-                                        .foregroundStyle(model.favoriteActive(detail.series) ? .orange : .secondary)
+                                        .foregroundStyle(model.favoriteActive(detail.series) ? Color.accentColor : .secondary)
                                 }.buttonStyle(.plain).help(model.favoriteActive(detail.series) ? "取消收藏" : "收藏")
                             }
                             if !detail.series.description.isEmpty {
@@ -61,7 +61,7 @@ struct HomeFeedView: View {
                 }
             } else {
                 VStack(spacing: 18) {
-                    Image(systemName: "play.rectangle").font(.system(size: 52)).foregroundStyle(.orange)
+                    Image(systemName: "play.rectangle").font(.system(size: 52)).foregroundStyle(Color.accentColor)
                     Text(model.busy ? "正在准备试播…" : "看看下一部好故事").font(.title2)
                     Button("开始刷剧") { model.startHomeTrial() }.disabled(model.busy)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -116,13 +116,28 @@ struct MyAccountView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
-                Text("我的").font(.largeTitle.bold())
+                // 本机收藏：直接平铺卡片，无需进入单独列表页。
+                sectionHeader("收藏")
+                if library.contents.favorites.isEmpty {
+                    Text("暂无收藏").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(library.contents.favorites) { series in seriesCard(series) }
+                        }
+                    }
+                }
 
-                // 1. 本机片单
-                sectionHeader("本机片单")
-                HStack(spacing: 16) {
-                    tile("本机收藏", icon: "star.fill", subtitle: "\(library.contents.favorites.count) 部作品") { model.navigate("本机收藏") }
-                    tile("本机历史", icon: "clock.fill", subtitle: "\(library.contents.history.count) 部作品") { model.navigate("本机历史") }
+                // 本机历史：直接平铺卡片。
+                sectionHeader("历史")
+                if library.contents.history.isEmpty {
+                    Text("暂无观看记录").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(library.contents.history) { record in historyCard(record) }
+                        }
+                    }
                 }
 
                 // 2. 红果账号
@@ -148,16 +163,15 @@ struct MyAccountView: View {
                 // 3. 设置
                 sectionHeader("设置")
                 VStack(alignment: .leading, spacing: 16) {
-                    Toggle("自动播放下一集", isOn: $model.autoNext)
-                        .onChange(of: model.autoNext) { UserDefaults.standard.set($0, forKey: "autoNext") }
+                    Toggle("连播", isOn: $model.autoNext)
                     Toggle("自动清晰度", isOn: Binding(get: { model.quality == 0 }, set: { auto in model.setQualityPreference(auto ? 0 : 1080) }))
                         .help("开启后自动选择源提供的最高可用清晰度。")
-                    Toggle("自动检查 Mac 更新", isOn: $updates.autoCheck)
-                        .help("开启后启动时自动检查 Mac 更新；默认关闭，仅手动点击检查。")
-                    HStack(spacing: 12) {
-                        Button("检查 Mac 更新") { updates.check() }.disabled(updates.busy)
-                        Text(updates.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
+                    Toggle("自动检查更新", isOn: $updates.autoCheck)
+                        .help("开启后启动时自动检查更新。")
+                    // 「检查更新」手动按钮入口已停用：更新独立发布，界面不再暴露手动检查入口。
+                    // MacUpdates.check/download 逻辑保留，供自动检查与未来重新开放使用。
+                    // Button("检查 Mac 更新") { updates.check() }.disabled(updates.busy)
+                    Text(updates.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     if updates.available != nil { Button("下载并校验更新包") { updates.download() }.disabled(updates.busy) }
                     if updates.busy { ProgressView().controlSize(.small) }
                 }
@@ -172,10 +186,33 @@ struct MyAccountView: View {
         Text(title).font(.title2.bold())
     }
 
+    private func seriesCard(_ series: Series) -> some View {
+        Button { model.open(series) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                AsyncImage(url: URL(string: series.cover)) { image in image.resizable().scaledToFill() }
+                    placeholder: { Rectangle().fill(.gray.opacity(0.18)).overlay(Image(systemName: "film")) }
+                    .frame(width: 110, height: 150).clipped().cornerRadius(10)
+                Text(series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
+            }.frame(width: 110, alignment: .leading)
+        }.buttonStyle(.plain).padding(4).disabled(model.busy)
+    }
+
+    private func historyCard(_ record: WatchRecord) -> some View {
+        Button { model.open(record.series) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                AsyncImage(url: URL(string: record.series.cover)) { image in image.resizable().scaledToFill() }
+                    placeholder: { Rectangle().fill(.gray.opacity(0.18)).overlay(Image(systemName: "film")) }
+                    .frame(width: 110, height: 150).clipped().cornerRadius(10)
+                Text(record.series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
+                Text(record.label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }.frame(width: 110, alignment: .leading)
+        }.buttonStyle(.plain).padding(4).disabled(model.busy)
+    }
+
     private func tile(_ title: String, icon: String, subtitle: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: icon).font(.title3).foregroundStyle(.orange).frame(width: 28)
+                Image(systemName: icon).font(.title3).foregroundStyle(Color.accentColor).frame(width: 28)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.headline)
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)

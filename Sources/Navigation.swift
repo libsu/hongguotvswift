@@ -9,7 +9,7 @@ struct NavigationItem: Identifiable {
 
 /// 左侧主导航（发现类）。「搜索」入口已移除——顶栏搜索框已可直接搜索。
 let discoveryNavigation = [
-    NavigationItem(title: "首页", icon: "play.rectangle.fill"),
+    NavigationItem(title: "首页", icon: "play.rectangle"),
     NavigationItem(title: "找剧", icon: "square.grid.2x2"),
     NavigationItem(title: "榜单", icon: "chart.bar"),
 ]

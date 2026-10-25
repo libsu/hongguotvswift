@@ -5,17 +5,24 @@
 import AppKit
 import AVKit
 import SwiftUI
+import IOKit.pwr_mgt
 
 /// 平台集成的具体实现：持有 Model 生命周期内的 AppKit 资源，实现 ModelPlatformInterface。
 @MainActor
 final class MacPlatformIntegration: ModelPlatformInterface {
     private weak var model: Model?
     private var keyMonitor: Any?
+    /// 播放守卫：播放中阻止系统休眠 + 30 分钟无操作暂停并提示。
+    private var playbackGuard: PlaybackGuard?
 
     init(model: Model) { self.model = model }
 
     func installPlatformIntegrations(resourcesURL: URL?, restoreSession: Bool) {
         installKeyMonitor()
+        if let model {
+            playbackGuard = PlaybackGuard(model: model)
+            playbackGuard?.start()
+        }
         // 正式原生运行（无桥接 URL）才会自动检查更新；测试走注入桥时不查。
         if model?.backend != nil { model?.updates.autoCheckIfEnabled() }
     }
@@ -26,6 +33,8 @@ final class MacPlatformIntegration: ModelPlatformInterface {
 
     func platformShutdown() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor); self.keyMonitor = nil }
+        playbackGuard?.stop()
+        playbackGuard = nil
     }
 
     /// 安装全局键盘监听：空格播放/暂停、方向键快进快退/切换作品，普通窗口与全屏共用。
@@ -51,11 +60,66 @@ final class MacPlatformIntegration: ModelPlatformInterface {
     }
 }
 
+// MARK: - 播放守卫（阻止休眠）
+
+/// 播放守卫：播放中持有 IOPMAssertionNoDisplaySleep，阻止系统进入睡眠/显示器休眠；
+/// 暂停、停止或退出时释放断言。
+@MainActor
+final class PlaybackGuard {
+    private weak var model: Model?
+    private var sleepAssertionID: IOPMAssertionID = 0
+    private var didTakeAssertion = false
+    private var rateObservation: NSKeyValueObservation?
+
+    init(model: Model) { self.model = model }
+
+    func start() {
+        guard let model else { return }
+        // 记录播放状态变化（rate 0=暂停/停止，>0=正在播放）。
+        rateObservation = model.player.observe(\.rate, options: [.new]) { [weak self] player, _ in
+            Task { @MainActor in self?.setSleepAssertion(player.rate > 0) }
+        }
+        // 启动时若已播放，立即取断言。
+        setSleepAssertion(model.player.rate > 0)
+    }
+
+    func stop() {
+        rateObservation?.invalidate(); rateObservation = nil
+        releaseSleepAssertion()
+    }
+
+    private func setSleepAssertion(_ active: Bool) {
+        if active && !didTakeAssertion {
+            var assertionID: IOPMAssertionID = 0
+            let name = "HongGuo Playback" as CFString
+            let reason = IOPMAssertionCreateWithName(kIOPMAssertionTypeNoDisplaySleep as CFString,
+                                                     IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                                     name,
+                                                     &assertionID)
+            if reason == kIOReturnSuccess {
+                sleepAssertionID = assertionID
+                didTakeAssertion = true
+            }
+        } else if !active && didTakeAssertion {
+            releaseSleepAssertion()
+        }
+    }
+
+    private func releaseSleepAssertion() {
+        if didTakeAssertion {
+            IOPMAssertionRelease(sleepAssertionID)
+            sleepAssertionID = 0
+            didTakeAssertion = false
+        }
+    }
+}
+
 // MARK: - GUI 专属存储属性（关联对象，避免污染逻辑层）
 
 private enum ModelAssociatedKeys {
     static var fullscreenPlayback: UInt8 = 0
     static var pipController: UInt8 = 0
+    static var pipSession: UInt8 = 0
     static var updates: UInt8 = 0
 }
 
@@ -76,6 +140,17 @@ extension Model {
         set { objc_setAssociatedObject(self, &ModelAssociatedKeys.pipController, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
+    /// 画中画会话（长期持有，作为 pip 委托）。负责在 pip 停止后安全释放承载视图，
+    /// 避免 pip 活跃时销毁 PlayerLayerView（解绑/释放 AVPlayerLayer）导致崩溃。
+    var pipSession: PipSession {
+        if let existing = objc_getAssociatedObject(self, &ModelAssociatedKeys.pipSession) as? PipSession {
+            return existing
+        }
+        let session = PipSession(model: self)
+        objc_setAssociatedObject(self, &ModelAssociatedKeys.pipSession, session, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return session
+    }
+
     /// Mac 更新状态（GUI 专属）。
     var updates: MacUpdates {
         if let existing = objc_getAssociatedObject(self, &ModelAssociatedKeys.updates) as? MacUpdates {
@@ -90,5 +165,55 @@ extension Model {
     func togglePictureInPicture() {
         guard let pip = pipController else { return }
         if pip.isPictureInPictureActive { pip.stopPictureInPicture() } else { pip.startPictureInPicture() }
+    }
+}
+
+/// 画中画会话：长期被 Model 持有，作为 AVPictureInPictureController 的委托。
+/// 关键职责：播放器视图（PlayerLayerView）销毁时，若 pip 仍活跃，不能立即解绑/释放其 AVPlayerLayer（系统仍在渲染画中画，会崩溃），
+/// 而是先请求停止 pip，并在 didStop 回调后再置空 player、释放承载视图。
+@MainActor
+final class PipSession: NSObject, @preconcurrency AVPictureInPictureControllerDelegate {
+    private weak var model: Model?
+    private weak var pip: AVPictureInPictureController?
+    private var retainedView: PlayerLayerView?
+    private var retiring = false
+
+    init(model: Model) { self.model = model; super.init() }
+
+    /// 由 ImmersiveVideo 创建 pip 后绑定到本会话（本会话成为 pip 的长期委托）。
+    func attach(pip: AVPictureInPictureController) {
+        self.pip = pip
+        pip.delegate = self
+    }
+
+    /// 播放器视图即将销毁时调用。pip 活跃则延迟清理，否则立即置空。
+    func retire(_ view: PlayerLayerView) {
+        guard let pip, pip.isPictureInPictureActive else {
+            view.playerLayer.player = nil
+            self.pip = nil
+            return
+        }
+        retainedView = view
+        retiring = true
+        pip.stopPictureInPicture()
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        Task { @MainActor in self.model?.pipActive = true }
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        Task { @MainActor in
+            self.model?.pipActive = false
+            self.finishRetire()
+        }
+    }
+
+    private func finishRetire() {
+        guard retiring else { return }
+        retiring = false
+        retainedView?.playerLayer.player = nil
+        retainedView = nil
+        self.pip = nil
     }
 }

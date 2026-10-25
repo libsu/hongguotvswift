@@ -31,11 +31,32 @@ final class TimedComments {
                 "need_danmaku_guide_type": [1, 3, 4, 2],
             ],
         ]
-        let result = try await transport.read(episode: episode, payload: payload, source: 601, channel: 1000)
-        let parsed = try Self.parse(result: result, series: series, episode: episode, start: start, duration: duration)
+        let parsed = try await Self.fetchWithRetry(transport: transport, episode: episode, payload: payload, series: series, start: start, duration: duration)
         cache[key] = (clock(), jsonString(parsed))
         while cache.count > 64 { if let k = cache.keys.first { cache.removeValue(forKey: k) } }
         return parsed
+    }
+
+    /// 拉取并解析一页弹幕，对网络跨态错误（超时/504 等）自动重试，避免偶发抖动导致加载失败。
+    private static func fetchWithRetry(transport: CommentTransport, episode: String, payload: [String: Any], series: String, start: Int64, duration: Int64) async throws -> [String: Any] {
+        func fetchOnce() async throws -> [String: Any] {
+            let result = try await transport.read(episode: episode, payload: payload, source: 601, channel: 1000)
+            return try parse(result: result, series: series, episode: episode, start: start, duration: duration)
+        }
+        do {
+            return try await fetchOnce()
+        } catch {
+            if !isTransientNetworkError(error) || Task.isCancelled { throw error }
+            for attempt in 1...2 {
+                try await Task.sleep(nanoseconds: UInt64(500_000_000 * attempt))
+                try Task.checkCancellation()
+                do { return try await fetchOnce() }
+                catch {
+                    if attempt == 2 || !isTransientNetworkError(error) || Task.isCancelled { throw error }
+                }
+            }
+            throw ContentError("弹幕暂时无法读取，请稍后重试")
+        }
     }
 
     static func parse(result: [String: Any], series: String, episode: String, start: Int64, duration: Int64) throws -> [String: Any] {

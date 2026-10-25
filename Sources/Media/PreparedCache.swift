@@ -54,7 +54,8 @@ final class PreparedCache {
         entries.removeAll()
     }
 
-    /// 移除某个 episodeID 的所有清晰度缓存。
+    /// 设计目标：按 episodeID 精确移除某个剧集的预热缓存（不经 clear 全清）。
+    /// 当前 clear() 已覆盖场景，此方法暂未接入；保留以备未来需要保留其它集缓存时按集作废。
     func invalidate(episodeID: String) {
         entries = entries.filter { $0.value.episodeID != episodeID }
     }

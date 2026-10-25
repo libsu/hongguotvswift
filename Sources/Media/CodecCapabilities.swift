@@ -25,13 +25,6 @@ enum CodecCapabilities {
         return c == "av01" || c == "av1" || c == "bytevc2" || c == "bvc2" || c.hasPrefix("av01")
     }
 
-    /// 上游 CodecCapabilities.mime() 对齐：归一化为编码族标签；未知（含 AV1）返回 nil。
-    static func mime(_ codec: String) -> String? {
-        if isAVC(codec) { return "avc" }
-        if isHEVC(codec) { return "hevc" }
-        return nil
-    }
-
     /// 该编码是否可解码。HEVC/AVC 在 macOS 上普遍支持；AV1（含 bytevc2/bvc2）保守视为不支持；
     /// 其它未知编码放行（对齐 上游 的 `mime(codec) ?: return true`）。
     static func supports(codec: String, width: Int?, height: Int?) -> Bool {
@@ -39,10 +32,14 @@ enum CodecCapabilities {
         return true   // hevc/avc/未知：macOS 均可播或按未知放行
     }
 
+    /// 设计目标：按 Rendition 判断是否可解码的便捷重载。
+    /// 取流目前直接走 supports(codec:width:height:) 闭包，此重载暂未消费；保留以对齐上游 API。
     static func supports(_ rendition: Rendition) -> Bool {
         supports(codec: rendition.codec, width: rendition.width, height: rendition.height)
     }
 
+    /// 设计目标：按 VideoTracks.Track 判断是否可解码的便捷重载。
+    /// 当前无调用方；保留以对齐上游 API，与 supports(codec:width:height:) 保持一致。
     static func supports(_ track: VideoTracks.Track) -> Bool {
         supports(codec: track.fourcc, width: track.width, height: track.height)
     }

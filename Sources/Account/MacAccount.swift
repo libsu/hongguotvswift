@@ -15,6 +15,8 @@ final class MacAccount {
         self.client = CloudAccountClient(http: http)
     }
 
+    /// 设计目标：返回内存中的登录凭据快照（不落盘、不序列化）。
+    /// 当前无调用方；保留以备未来 UI/调试需要读取当前登录态快照。
     func snapshot() -> AccountCredentials? { credentials }
 
     /// 处理一个 account/<action>，返回 JSON 结构（供 Model 复用 Decodable 解码）。

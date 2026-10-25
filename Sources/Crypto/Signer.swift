@@ -61,7 +61,7 @@ final class Signer {
             case .float:
                 let f0: Float
                 if let v = field.value as? Double { f0 = Float(v) }
-                else { f0 = Float(field.value as! NSNumber) }
+                else { f0 = Float(truncating: field.value as! NSNumber) }
                 out += varint((Int64(field.tag) << 3) | 5)
                 var v = f0.bitPattern
                 for _ in 0..<4 { out.append(UInt8(v & 0xff)); v >>= 8 }

@@ -65,6 +65,25 @@ extension Model {
     func togglePlayback() {
         if player.rate > 0 { player.pause() } else { player.playImmediately(atRate: speed) }
     }
+    /// 显示播放控件并在 2.5 秒后自动隐藏。
+    /// `keepVisible` 为真时（信息面板开启、鼠标按住拖动等）延后隐藏，避免阅读/拖拽时控件消失。
+    /// 全屏与非全屏共用；鼠标移动/点击/按键及各控件交互均调用此方法复位计时。
+    func revealPlayerControls(keepVisible: Bool = false) {
+        playerControlsVisible = true
+        controlsHideTask?.cancel()
+        controlsHideTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if keepVisible || self.infoPanelOpen { self.revealPlayerControls() }
+            else { self.playerControlsVisible = false }
+        }
+    }
+    /// 隐藏播放控件（并关闭信息面板）。
+    func hidePlayerControls() {
+        controlsHideTask?.cancel(); controlsHideTask = nil
+        playerControlsVisible = false
+        infoPanelOpen = false
+    }
     func skipPlayback(_ seconds: Double) {
         let now = player.currentTime().seconds
         guard now.isFinite else { return }

@@ -32,7 +32,8 @@ enum Gzip {
         return Array(out.prefix(Int(z.total_out)))
     }
 
-    /// GZIP 解压（对齐 Java GZIPInputStream）。
+    /// 设计目标：GZIP 解压（对齐 Java GZIPInputStream）。
+    /// 本项目目前只用 compress 方向（签名/设备注册），解压能力保留作为对称能力，以备解析服务端 gzip 响应。
     static func decompress(_ data: [UInt8]) -> [UInt8] {
         let input = Data(data)
         // 用 zlib inflateInit2 窗口位 15+16 即 gzip。

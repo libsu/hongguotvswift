@@ -72,38 +72,54 @@ extension Model {
     }
     func loadCatalog(more: Bool = false, refresh: Bool = false) {
         let kind = section
-        guard ["找剧", "榜单", "推荐"].contains(kind), !busy else { return }
+        guard ["找剧", "榜单", "推荐"].contains(kind) else { return }
         let endpoint = kind == "找剧" ? "catalog" : kind == "榜单" ? "rank" : "feed"
         let selectedCategory = category, selectedTopic = topic, selectedBoard = board
         let cacheKey = catalogCache.key(section: kind, category: selectedCategory, board: selectedBoard)
-        // 首页/换一批：先上缓存「架子」（找剧/榜单），避免每次进入都是空的；首页推荐不缓存。
-        if !more && kind != "推荐" {
-            if let cached = catalogCache.load(cacheKey) {
-                self.catalogRows = cached.items
-                self.topics = cached.topics
-                self.rankPositions = cached.positions ?? [:]
-                self.catalogMore = cached.hasMore
-                self.catalogPage = 1
-                self.message = "已加载 \(cached.items.count) 部剧（缓存）"
+        // 首次进入（找剧/榜单）且命中缓存：先上屏缓存「架子」，再后台非阻塞刷新。
+        if !more && kind != "推荐", let cached = catalogCache.load(cacheKey) {
+            self.catalogRows = cached.items
+            self.topics = cached.topics
+            self.rankPositions = cached.positions ?? [:]
+            self.catalogMore = cached.hasMore
+            self.catalogPage = 1
+            self.message = "已加载 \(cached.items.count) 部剧（缓存）"
+            // 后台刷新不占用 busy，因此卡片保持可点、不会被置灰。
+            catalogRefreshTask?.cancel()
+            catalogRefreshTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.fetchCatalog(kind: kind, endpoint: endpoint, category: selectedCategory, topic: selectedTopic, board: selectedBoard, cacheKey: cacheKey, more: false, refresh: refresh)
+                } catch {
+                    if !Task.isCancelled { self.message = error.localizedDescription }
+                }
             }
+            return
         }
+        // 无缓存（首次加载、加载更多或推荐换一批）：走 perform，占用 busy 展示加载态。
+        guard !busy else { return }
         perform {
-            let next = more ? self.catalogPage + 1 : 1
             if !more { self.catalogRows = [] }
-            self.message = "正在加载\(kind)…"
-            let result: CatalogResult = try await self.request(endpoint, ["category": selectedCategory, "topic": selectedTopic, "board": selectedBoard, "page": String(next), "refresh": String(refresh)])
-            guard self.section == kind else { return }
-            if more {
-                let existing = Set(self.catalogRows.map(\.id))
-                self.catalogRows += result.items.filter { !existing.contains($0.id) }
-            } else { self.catalogRows = result.items }
-            self.catalogMore = result.hasMore; self.catalogPage = next; self.catalogKind = kind
-            self.topics = result.topics; self.rankPositions = result.positions ?? [:]
-            self.message = "已加载 \(self.catalogRows.count) 部剧"
-            // 仅缓存第一页结果，避免脏数据与磁盘膨胀。
-            if !more && kind != "推荐" && next == 1 {
-                self.catalogCache.save(result, key: cacheKey)
-            }
+            try await self.fetchCatalog(kind: kind, endpoint: endpoint, category: selectedCategory, topic: selectedTopic, board: selectedBoard, cacheKey: cacheKey, more: more, refresh: refresh)
+        }
+    }
+
+    /// 拉取一页目录数据并应用结果（含第一页落盘缓存），供首次加载与后台刷新共用。
+    private func fetchCatalog(kind: String, endpoint: String, category: String, topic: String, board: String, cacheKey: String, more: Bool, refresh: Bool) async throws {
+        let next = more ? self.catalogPage + 1 : 1
+        self.message = "正在加载\(kind)…"
+        let result: CatalogResult = try await self.request(endpoint, ["category": category, "topic": topic, "board": board, "page": String(next), "refresh": String(refresh)])
+        guard self.section == kind else { return }
+        if more {
+            let existing = Set(self.catalogRows.map(\.id))
+            self.catalogRows += result.items.filter { !existing.contains($0.id) }
+        } else { self.catalogRows = result.items }
+        self.catalogMore = result.hasMore; self.catalogPage = next; self.catalogKind = kind
+        self.topics = result.topics; self.rankPositions = result.positions ?? [:]
+        self.message = "已加载 \(self.catalogRows.count) 部剧"
+        // 仅缓存第一页结果，避免脏数据与磁盘膨胀。
+        if !more && kind != "推荐" && next == 1 {
+            self.catalogCache.save(result, key: cacheKey)
         }
     }
 }

@@ -142,6 +142,8 @@ func digest(_ algorithm: String, _ value: [UInt8]) -> [UInt8] {
     var len = 0
     value.withUnsafeBufferPointer { ptr in
         if algorithm == "MD5" {
+            // 协议兼容需要 MD5（上游弹幕/评论签名强制），无法替换为 SHA-256。
+            // CommonCrypto 仍将其标记为弃用，此处为有意为之。
             CC_MD5(ptr.baseAddress, CC_LONG(value.count), &out)
             len = 16
         } else if algorithm == "SHA-256" {
@@ -244,14 +246,16 @@ func xor(_ a: [UInt8], _ b: [UInt8]) -> [UInt8] {
     a.enumerated().map { i, v in v ^ b[i % b.count] }
 }
 
-/// 上游: rol(v, n) = Integer.rotateLeft
+/// 设计目标：上游 rol(v, n) = Integer.rotateLeft（Int32 循环左移）。
+/// 签名用 Signer.ror32、SM3 用私有 rotl，此自由函数当前未被调用；保留以对齐上游位运算语义。
 func rol(_ v: Int32, _ n: Int) -> Int32 {
     let u = UInt32(bitPattern: v)
     let nn = UInt32(n & 31)
     return Int32(bitPattern: (u << nn) | (u >> (32 - nn)))
 }
 
-/// 上游: ror(v, n) = Integer.rotateRight
+/// 设计目标：上游 ror(v, n) = Integer.rotateRight（Int32 循环右移）。
+/// 当前未被调用（签名/散列用各自私有移位）；保留以对齐上游位运算语义。
 func ror(_ v: Int32, _ n: Int) -> Int32 {
     let u = UInt32(bitPattern: v)
     let nn = UInt32(n & 31)

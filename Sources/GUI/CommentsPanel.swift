@@ -26,7 +26,7 @@ struct CommentsPanel: View {
                 HStack {
                     Text(tab == "本集评论" ? "已加载 \(thread.items.count) 条 / 共 \(thread.total) 条" : "\(items.count) 条节选 / 共 \(comments.result?.reviews.total ?? 0) 条").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    if tab == "整剧剧评", let rating = comments.result?.rating, rating > 0 { Text("\(rating, specifier: "%.1f") 分").foregroundStyle(.orange) }
+                    if tab == "整剧剧评", let rating = comments.result?.rating, rating > 0 { Text("\(rating, specifier: "%.1f") 分").foregroundStyle(Color.accentColor) }
                 }
                 HStack {
                     TextField("筛选已加载的评论", text: $filter)

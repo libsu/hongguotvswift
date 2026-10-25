@@ -24,7 +24,7 @@ struct TimedCommentPage: Decodable { let seriesID: String; let episodeID: String
     func update(series: String, episode: String, time: Double, duration: Double) {
         let nextKey = series + "/" + episode
         if key != nextKey { clear(); key = nextKey }
-        guard enabled, !loading, time.isFinite, duration.isFinite, time >= 0, duration > time, duration <= 86400, Date().timeIntervalSince(failedAt) >= 15 else { return }
+        guard enabled, !loading, time.isFinite, duration.isFinite, time >= 0, duration > time, duration <= 86400, Date().timeIntervalSince(failedAt) >= 5 else { return }
         let position = Int(time * 1000), end = Int(duration * 1000)
         let current = position / 30000 * 30000
         var desired = [current]

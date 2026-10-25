@@ -14,6 +14,8 @@ struct Rendition {
     let url: String
     let key: [UInt8]?
 
+    /// 设计目标：把取数层的 Rendition 桥接成 UI 侧 StreamInfo（对应 上游 Rendition.toStreamInfo）。
+    /// 当前取流直接使用 repository.stream 返回的 StreamInfo，此桥接暂未接入，保留以备统一「取数→UI」映射。
     func toStreamInfo() -> StreamInfo {
         StreamInfo(url: url, key: key, quality: quality > 0 ? "\(quality)P" : "自动")
     }
@@ -48,8 +50,9 @@ struct StreamLadder {
         return effective.min(by: { isBetter($1, than: $0) })
     }
 
-    /// 上游: playbackOrder(maxQuality, supported) —— select() 先选最佳，
+    /// 设计目标：对应 上游 playbackOrder(maxQuality, supported) —— select() 先选最佳，
     /// 再把「质量不高于选中项」的其它候选项按优到劣排在其后，供逐档降级验证。
+    /// 当前取流只用 select() 一步到位，未启用逐档降级；保留以备后续对不稳定源做降级重试。
     func playbackOrder(maxQuality: Int, supported: (Rendition) -> Bool = { _ in true }) -> [Rendition] {
         guard let pick = select(maxQuality: maxQuality, supported: supported) else { return [] }
         let alternates = renditions.filter { $0.url != pick.url && $0.quality <= pick.quality }
@@ -77,6 +80,8 @@ enum DramaCategory: String {
         case .ai: return "ai-drama"
         }
     }
+    /// 设计目标：由路由串（如 real-drama）反解出枚举，与 route 属性对称。
+    /// 当前前端直接按 rawValue 匹配，未走此 init；保留以保持「枚举↔路由」双向映射完整。
     init?(fromRoute route: String) {
         switch route {
         case "real-drama": self = .real
@@ -99,7 +104,8 @@ enum RankBoard: String {
         case .ai: return "hot-ai-drama"
         }
     }
-    /// loader 名（对应 上游 RankBoard.loader）
+    /// 设计目标：loader 名（对应 上游 RankBoard.loader）。当前 ComicRank.parse 实际读的是 route，
+    /// 此属性暂未消费；保留以对齐上游字段语义，便于未来复用接口差异化加载。
     var loader: String {
         switch self {
         case .comic: return "comic_rank"
@@ -107,7 +113,7 @@ enum RankBoard: String {
         case .ai: return "ai_rank"
         }
     }
-    /// key（对应 上游 RankBoard.key）
+    /// 设计目标：key（对应 上游 RankBoard.key）。当前无读取方；保留以对齐上游字段语义。
     var key: String {
         switch self {
         case .comic: return "comic"
@@ -197,7 +203,8 @@ struct RelatedWork {
 }
 
 extension Series {
-    /// 生成 id 校验：上游 `[0-9]{1,30}`。
+    /// 设计目标：生成 id 校验（上游 `[0-9]{1,30}`）。
+    /// 各处实际使用全局 isValidNumericId()（支持可调长度），此扩展暂未使用；保留以对齐上游字段语义。
     var isValidId: Bool { id.range(of: "^[0-9]{1,30}$", options: .regularExpression) != nil }
 }
 

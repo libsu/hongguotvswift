@@ -57,7 +57,6 @@ struct TVHomeView: View {
             }
             .padding(32)
         }
-        .tint(.orange)
     }
 }
 
