@@ -18,9 +18,13 @@ extension Model {
             let added = result.items.filter { !ids.contains($0.id) }
             self.catalogRows = old + added
             self.catalogMore = result.hasMore; self.catalogPage = page
-            // 进入首页不自动试播；仅当用户主动点「开始刷剧」时才试播第一部。
+            // 自动试播：
+            // - 用户点「开始刷剧」且列表为空时（autoTrialAfterLoad），先加载再试播。
+            // - 「首页直接播放」开启时，进入首页/切分类/换一批加载完成后直接试播第一部。
             if self.autoTrialAfterLoad, let first = added.first {
                 self.autoTrialAfterLoad = false
+                self.pendingHomeSeries = first
+            } else if !more && self.homeAutoPlay, let first = added.first {
                 self.pendingHomeSeries = first
             } else {
                 self.message = "已加载 \(self.catalogRows.count) 部作品，点「开始刷剧」试播"

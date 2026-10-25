@@ -31,7 +31,7 @@ struct HomeFeedView: View {
             }
             if let detail = model.detail, model.showDetail {
                 HStack(alignment: .top, spacing: 24) {
-                    NativePlayer(player: model.player, model: model)
+                    NativePlayer(player: model.player)
                         .overlay { DanmakuOverlay(model: model, danmaku: model.danmaku) }
                         .overlay(alignment: .topTrailing) { PlayerCornerButtons(model: model) }
                         .background(.black).cornerRadius(16)
@@ -106,13 +106,6 @@ struct MyAccountView: View {
     @ObservedObject var library: LocalLibrary
     @ObservedObject var updates: MacUpdates
 
-    private let accountEntrySpecs: [(title: String, icon: String, cloudType: String)] = [
-        ("账户收藏", "star.circle", "账户收藏"),
-        ("账户历史", "clock.arrow.circlepath", "账户历史"),
-        ("已上线预约", "play.rectangle", "已上线预约"),
-        ("待上线预约", "calendar", "待上线预约"),
-    ]
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
@@ -140,17 +133,28 @@ struct MyAccountView: View {
                     }
                 }
 
-                // 2. 红果账号
-                sectionHeader("红果账户")
-                if model.account?.loggedIn == true {
-                    HStack {
-                        Label(model.account?.nickname ?? "红果用户", systemImage: "person.crop.circle.fill").font(.headline)
-                        Spacer()
-                        Button("退出登录") { model.logout() }.disabled(model.busy)
+                // 2. 账户：标题、用户名、退出登录均靠左（start），登录后四类账号片单直接平铺。
+                HStack(spacing: 12) {
+                    sectionHeader("账户")
+                    if model.account?.loggedIn == true {
+                        Text(model.account?.nickname ?? "红果用户").font(.headline).foregroundStyle(.secondary).lineLimit(1)
+                        Button("登出") { model.logout() }.disabled(model.accountBusy)
                     }
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                        ForEach(accountEntrySpecs, id: \.cloudType) { spec in
-                            tile(spec.title, icon: spec.icon, subtitle: "查看账号片单") { model.navigate(spec.cloudType) }
+                    Spacer(minLength: 0)
+                }
+                if model.account?.loggedIn == true {
+                    if model.cloudAllLoading && model.cloudAllError == nil && model.cloudFavorites.isEmpty && model.cloudHistory.isEmpty && model.cloudOnline.isEmpty && model.cloudUpcoming.isEmpty {
+                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("正在读取账号片单…").font(.caption).foregroundStyle(.secondary) }
+                    } else {
+                        accountSection("账户收藏", entries: model.cloudFavorites, style: .favorite, empty: "账号暂无收藏")
+                        accountSection("账户历史", entries: model.cloudHistory, style: .history, empty: "账号暂无观看记录")
+                        accountSection("已上线预约", entries: model.cloudOnline, style: .reservation, empty: "暂无已上线预约")
+                        accountSection("待上线预约", entries: model.cloudUpcoming, style: .reservation, empty: "暂无待上线预约")
+                        if let error = model.cloudAllError {
+                            HStack(spacing: 8) {
+                                Text(error).font(.caption).foregroundStyle(.secondary)
+                                Button("重试") { model.loadAllCloud() }.disabled(model.cloudAllLoading)
+                            }
                         }
                     }
                 } else {
@@ -164,6 +168,8 @@ struct MyAccountView: View {
                 sectionHeader("设置")
                 VStack(alignment: .leading, spacing: 16) {
                     Toggle("连播", isOn: $model.autoNext)
+                    Toggle("首页直接播放", isOn: $model.homeAutoPlay)
+                        .help("开启后进入首页加载完成即自动播放，不再等待「开始刷剧」确认。")
                     Toggle("自动清晰度", isOn: Binding(get: { model.quality == 0 }, set: { auto in model.setQualityPreference(auto ? 0 : 1080) }))
                         .help("开启后自动选择源提供的最高可用清晰度。")
                     Toggle("自动检查更新", isOn: $updates.autoCheck)
@@ -194,7 +200,7 @@ struct MyAccountView: View {
                     .frame(width: 110, height: 150).clipped().cornerRadius(10)
                 Text(series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
             }.frame(width: 110, alignment: .leading)
-        }.buttonStyle(.plain).padding(4).disabled(model.busy)
+        }.buttonStyle(.plain).padding(4)
     }
 
     private func historyCard(_ record: WatchRecord) -> some View {
@@ -206,20 +212,56 @@ struct MyAccountView: View {
                 Text(record.series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
                 Text(record.label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }.frame(width: 110, alignment: .leading)
-        }.buttonStyle(.plain).padding(4).disabled(model.busy)
+        }.buttonStyle(.plain).padding(4)
     }
 
-    private func tile(_ title: String, icon: String, subtitle: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon).font(.title3).foregroundStyle(Color.accentColor).frame(width: 28)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+    // MARK: - 账户四类片单
+
+    private enum AccountSectionStyle { case favorite, history, reservation }
+
+    @ViewBuilder
+    private func accountSection(_ title: String, entries: [CloudEntry], style: AccountSectionStyle, empty: String) -> some View {
+        Text(title).font(.title3.bold())
+        if entries.isEmpty {
+            Text(empty).font(.caption).foregroundStyle(.secondary)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(entries) { entry in cloudCard(entry, style: style) }
                 }
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        }.buttonStyle(.bordered).disabled(model.busy)
+            }
+        }
+    }
+
+    private func cloudCard(_ entry: CloudEntry, style: AccountSectionStyle) -> some View {
+        Button {
+            if style == .reservation && entry.online == false { model.message = "该剧待上线，暂时无法播放" }
+            else if style == .history { model.open(entry.series, resumeEpisodeID: entry.episodeID, resumePosition: entry.position) }
+            else { model.open(entry.series) }
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                AsyncImage(url: URL(string: entry.series.cover)) { image in image.resizable().scaledToFill() }
+                    placeholder: { Rectangle().fill(.gray.opacity(0.18)).overlay(Image(systemName: "film")) }
+                    .frame(width: 110, height: 150).clipped().cornerRadius(10)
+                Text(entry.series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
+                cloudSubtitle(entry, style: style)
+            }.frame(width: 110, alignment: .leading)
+        }.buttonStyle(.plain).padding(4)
+    }
+
+    @ViewBuilder
+    private func cloudSubtitle(_ entry: CloudEntry, style: AccountSectionStyle) -> some View {
+        switch style {
+        case .favorite:
+            EmptyView()
+        case .history:
+            let ep = (entry.episodeIndex ?? 0) + 1
+            let pos = max(0, Int(entry.position ?? 0))
+            Text("第 \(ep) 集 · \(String(format: "%02d:%02d", pos / 60, pos % 60))")
+                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        case .reservation:
+            Text(entry.online == false ? "待上线" : ((entry.publishText ?? "").isEmpty ? "已上线" : entry.publishText!))
+                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        }
     }
 }

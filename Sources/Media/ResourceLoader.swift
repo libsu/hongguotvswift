@@ -189,27 +189,41 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         // requestsAllDataToEndOfResource 时可能一次性请求远超该上限的区间（甚至整个文件）。
         // 这里改为「有界分块 respond」：每 4MB 解密后立即回喂，不一次性累积整段到内存，
         // 避免对超大文件 reserveCapacity/append 导致 OOM 崩溃。剩余区间由 AVPlayer 继续请求。
-        try await fetchRangeDecrypted(from: remoteStart, to: end, prepared: prepared, total: total) { decrypted in
+        let fedTo = await fetchRangeDecrypted(from: remoteStart, to: end, prepared: prepared, total: total) { decrypted in
             dataRequest.respond(with: Data(decrypted))
         }
+        // 若一个字节都没喂成功（如 URL 已失效/CND 内容漂移），以错误结束，让 AVPlayer 感知失败
+        // 并停止无谓地重复请求同一失效范围；否则按已回喂范围正常结束，剩余由 AVPlayer 续传。
+        if fedTo < remoteStart { throw NSError(domain: "HongguoMedia", code: 12, userInfo: [NSLocalizedDescriptionKey: "当前视频源不可用，请切换清晰度或重试"]) }
         request.finishLoading()
-        Log.shared.info("media \(episodeID) range done: 回喂 \(end - remoteStart + 1)B")
+        Log.shared.info("media \(episodeID) range done: 回喂 \(fedTo - remoteStart + 1)B\(fedTo < end ? "（未到末尾，后续续传）" : "")")
     }
 
     /// 远程取流 + 逐段解密，每段解密后立即回调（通常为 respond），避免整段缓存。
     /// MediaFetcher.range 的单段上限（<8MB）低于 AVPlayer 的大范围请求，这里按固定步长切分，
     /// 每段以其在文件中的绝对 offset 作为 decrypt 的 start，保证 CTR 计数器正确。
-    private func fetchRangeDecrypted(from start: Int64, to end: Int64, prepared: MediaCrypto.Prepared, total: Int64, onChunk: ([UInt8]) -> Void) async throws {
+    /// 返回最后一个已成功回喂块的末尾偏移（可能 < end），调用方据此结束本次 loading request。
+    @discardableResult
+    private func fetchRangeDecrypted(from start: Int64, to end: Int64, prepared: MediaCrypto.Prepared, total: Int64, onChunk: ([UInt8]) -> Void) async -> Int64 {
         // 单段步长（略低于 8MB 上限，留余量）：4MB。
         let step: Int64 = 4 * 1024 * 1024
         var cursor = start
+        var fedTo = start - 1
         while cursor <= end {
             let segEnd = min(cursor + step - 1, end)
-            let raw = try await MediaFetcher.range(url: stream.url, start: cursor, end: segEnd, knownTotal: total, session: session)
-            let decrypted = try MediaCrypto.decrypt(raw.bytes, start: cursor, key: stream.key, prepared: prepared)
-            onChunk(decrypted)
+            do {
+                let raw = try await MediaFetcher.range(url: stream.url, start: cursor, end: segEnd, knownTotal: total, session: session)
+                let decrypted = try MediaCrypto.decrypt(raw.bytes, start: cursor, key: stream.key, prepared: prepared)
+                onChunk(decrypted)
+                fedTo = segEnd
+            } catch {
+                // 该块取流/解密失败：停止续喂，让本次请求到此为止，剩余由 AVPlayer 后续重发。
+                Log.shared.warn("media \(episodeID) range 分段失败 @\(cursor)-\(segEnd)：\(error.localizedDescription)")
+                break
+            }
             cursor = segEnd + 1
         }
+        return fedTo
     }
 
     private func prepare() async throws {

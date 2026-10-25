@@ -66,7 +66,6 @@ private final class PlaybackWindow: NSWindow {
 
 private struct CleanVideo: NSViewRepresentable {
     let player: AVPlayer
-    var model: Model? = nil
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.controlsStyle = .none
@@ -80,45 +79,14 @@ private struct CleanVideo: NSViewRepresentable {
     static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) { view.player = nil }
 }
 private struct FullscreenSurface: View {
-    @ObservedObject var playback: FullscreenPlayback
+    let playback: FullscreenPlayback
     @ObservedObject var model: Model
     var body: some View {
         ZStack {
             Color.black
             CleanVideo(player: playback.player)
             DanmakuOverlay(model: model, danmaku: model.danmaku)
-            // 右上角退出全屏入口——与上下控件一起随 playerControlsVisible 自动隐藏。
-            if model.playerControlsVisible {
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button { playback.close() } label: {
-                            Image(systemName: "arrow.down.right.and.arrow.up.left")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .padding(8)
-                                .background(.black.opacity(0.5), in: Circle())
-                        }.help("退出全屏 · Esc").buttonStyle(.plain).padding(12)
-                    }
-                    Spacer()
-                }
-                .transition(.opacity)
-            }
-            // 顶部渐变栏（自动隐藏）——与非全屏一致。
-            if model.playerControlsVisible {
-                VStack { PlayerTopBar(model: model); Spacer() }
-                    .transition(.opacity)
-            }
-            // 底部渐变栏（自动隐藏）——与非全屏一致。
-            if let detail = model.detail, model.playerControlsVisible {
-                VStack { Spacer(); PlayerBottomBar(model: model, library: model.library, detail: detail, showsTransport: false) }
-                    .transition(.opacity)
-            }
-            // 底部信息面板（选集/简介/相关作品）——与非全屏一致。
-            if let detail = model.detail, model.infoPanelOpen {
-                VStack { Spacer(); PlayerInfoPanel(model: model, library: model.library, detail: detail) }
-                    .transition(.opacity)
-            }
+            PlayerOverlays(model: model, library: model.library, detail: model.detail, showsTransport: false, corner: .exitFullscreen)
         }
         .animation(.easeInOut(duration: 0.25), value: model.playerControlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.infoPanelOpen)
@@ -128,7 +96,6 @@ private struct FullscreenSurface: View {
 
 struct NativePlayer: NSViewRepresentable {
     let player: AVPlayer
-    var model: Model? = nil
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
@@ -272,7 +239,7 @@ struct PlayerTopBar: View {
     }
 }
 
-/// 底部渐变栏：进度条、播放/暂停、时间、选集/下一集/收藏/弹幕/清晰度/倍速、PiP/投屏。
+/// 底部控件栏：进度条、播放/暂停、时间、选集/下一集/收藏/弹幕/清晰度/倍速、PiP/投屏。
 struct PlayerBottomBar: View {
     @ObservedObject var model: Model
     @ObservedObject var library: LocalLibrary
@@ -310,21 +277,22 @@ struct PlayerBottomBar: View {
                     // 评论入口暂时隐藏。
                     Button { model.toggleFavorite(detail.series) } label: {
                         Image(systemName: model.favoriteActive(detail.series) ? "star.fill" : "star")
-                            .foregroundStyle(model.favoriteActive(detail.series) ? .white : Color.white.opacity(0.45))
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(model.favoriteActive(detail.series) ? .white : Color.white.opacity(0.55))
                     }.help(model.favoriteActive(detail.series) ? "取消收藏" : "收藏").buttonStyle(.borderless)
-                    DanmakuControl(danmaku: model.danmaku)
-                    // 清晰度（自绘展开胶囊）
-                    pickerCapsule(icon: "4k.tv", text: qualityLabel, kind: .quality)
-                    // 倍速（自绘展开胶囊）
-                    pickerCapsule(icon: "gauge.with.dots.needle.50percent", text: speedText(model.speed), kind: .speed)
-                    if showsTransport {
-                        // 画中画（PiP）
-                        Button { model.togglePictureInPicture() } label: {
-                            Image(systemName: model.pipActive ? "pip.exit" : "pip.enter").font(.body)
-                        }.help("画中画").buttonStyle(.borderless)
-                        // 投屏（系统路由选择器，一键唤起设备面板，等同 QuickTime 电视图标）
-                        AirPlayPicker().frame(width: 32, height: 26)
-                    }
+                DanmakuControl(danmaku: model.danmaku)
+                // 清晰度（自绘展开胶囊）
+                pickerCapsule(icon: "", text: qualityLabel, kind: .quality)
+                // 倍速（自绘展开胶囊）
+                pickerCapsule(icon: "", text: "倍速" + speedText(model.speed), kind: .speed)
+                if showsTransport {
+                    // 画中画（PiP）
+                    Button { model.togglePictureInPicture() } label: {
+                        Image(systemName: model.pipActive ? "pip.exit" : "pip.enter").font(.body)
+                    }.help("画中画").buttonStyle(.borderless)
+                    // 投屏入口已隐藏：系统 AVRoutePickerView 实为音频路由，无法投视频画面。
+                    // AirPlayPicker(player: model.player).frame(width: 32, height: 26)
+                }
                 }
                 // 自绘展开选项行（清晰度 / 倍速）
                 if let picker = expandedPicker {
@@ -346,7 +314,7 @@ struct PlayerBottomBar: View {
             model.revealPlayerControls()
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: icon).font(.caption)
+                if !icon.isEmpty { Image(systemName: icon).font(.caption) }
                 Text(text).font(.caption).fontWeight(.medium)
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).opacity(0.6)
             }
@@ -401,17 +369,6 @@ struct PlayerBottomBar: View {
     }
 }
 
-/// 投屏路由选择器：直接展示系统路由按钮（一键唤起设备面板），调整着色以融入深色 UI。
-struct AirPlayPicker: NSViewRepresentable {
-    func makeNSView(context: Context) -> AVRoutePickerView {
-        let view = AVRoutePickerView()
-        view.isRoutePickerButtonBordered = false
-        return view
-    }
-    func updateNSView(_ view: AVRoutePickerView, context: Context) {}
-}
-
-/// 底部弹出的选集面板（精简：标题 + 关闭 + 选集网格 + 自动下一集 + 相关作品）。
 struct PlayerInfoPanel: View {
     @ObservedObject var model: Model
     @ObservedObject var library: LocalLibrary
@@ -476,5 +433,78 @@ struct PlayerInfoPanel: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding(.horizontal, 20).padding(.bottom, 16)
+    }
+}
+
+// MARK: - 播放器覆盖层
+
+/// 播放区悬浮覆盖层（右上角全屏入口 + 顶部栏 + 底部栏 + 信息面板）。
+/// 全屏与非全屏共用一套布局，仅右上角按钮语义与底部栏传输控件（PiP/投屏）不同，
+/// 消除 FullscreenSurface 与 EpisodeView 的重复实现。
+struct PlayerOverlays: View {
+    @ObservedObject var model: Model
+    let library: LocalLibrary
+    let detail: Detail?
+    let showsTransport: Bool
+    /// 右上角按钮语义：退出全屏 vs 进入全屏（各自图标/文案/动作不同）。
+    let corner: Corner
+
+    enum Corner {
+        case enterFullscreen
+        case exitFullscreen
+    }
+
+    var body: some View {
+        // 右上角全屏入口——与上下控件一起随 playerControlsVisible 自动隐藏。
+        if model.playerControlsVisible {
+            VStack {
+                HStack {
+                    Spacer()
+                    cornerButton
+                }
+                Spacer()
+            }
+            .transition(.opacity)
+        }
+        // 顶部悬浮栏（仅试播场景的上一部/下一部/观看全集）
+        if model.playerControlsVisible {
+            VStack { PlayerTopBar(model: model); Spacer() }
+                .transition(.opacity)
+        }
+        // 底部渐变栏
+        if let detail, model.playerControlsVisible {
+            VStack { Spacer(); PlayerBottomBar(model: model, library: library, detail: detail, showsTransport: showsTransport) }
+                .transition(.opacity)
+        }
+        // 底部信息面板（选集/简介/相关作品）
+        if let detail, model.infoPanelOpen {
+            VStack { Spacer(); PlayerInfoPanel(model: model, library: library, detail: detail) }
+                .transition(.opacity)
+        }
+    }
+
+    private var cornerButton: some View {
+        switch corner {
+        case .exitFullscreen:
+            return Button {
+                model.fullscreenPlayback.close()
+            } label: {
+                cornerIcon("arrow.down.right.and.arrow.up.left")
+            }.help("退出全屏 · Esc").buttonStyle(.plain).padding(12)
+        case .enterFullscreen:
+            return Button {
+                model.fullscreenPlayback.show()
+            } label: {
+                cornerIcon("arrow.up.left.and.arrow.down.right")
+            }.help("全屏").buttonStyle(.plain).padding(12)
+        }
+    }
+
+    private func cornerIcon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(8)
+            .background(.black.opacity(0.5), in: Circle())
     }
 }

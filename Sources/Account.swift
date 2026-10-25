@@ -113,7 +113,9 @@ extension Model {
         accountGeneration += 1
         cancelLogin(); uploadTask?.cancel()
         cloudTask?.cancel(); cloudRequestID = UUID(); cloudLoading = false; cloudError = nil; cloudLoadedKey = nil
+        cloudAllTask?.cancel(); cloudAllLoading = false; cloudAllError = nil
         account = nil; cloudRows = []; accountFavorites = []; accountMessage = "已退出账号，本机记录保留。"
+        cloudFavorites = []; cloudHistory = []; cloudOnline = []; cloudUpcoming = []
         accountBusy = true
         Task {
             _ = await loginTask?.result
@@ -127,6 +129,8 @@ extension Model {
         cloudRows = []; cloudError = nil; cloudLoadedKey = nil
         accountFavorites = []
         if section == "账户" { loadCloud() }
+        // 登录成功后预加载四类账号片单，供「我的-账户」页平铺展示。
+        loadAllCloud()
     }
     func loadCloud() {
         cloudTask?.cancel()
@@ -152,29 +156,85 @@ extension Model {
             }
         }
     }
-    func cloudFavorite(_ series: Series, add: Bool) {
-        guard let identity = account?.id else { accountMessage = "请先扫码登录"; return }
-        perform {
-            let _: OperationResult = try await self.request("account/favorite", [:], body: ["id": series.id, "add": add, "accountID": identity])
-            self.message = add ? "已加入账户收藏" : "已取消账户收藏"
-            if add { self.accountFavorites.insert(series.id) } else { self.accountFavorites.remove(series.id) }
-            if self.section == "账户" && self.cloudType == "账户收藏" {
-                let result: CloudResult = try await self.request("account/favorites", [:])
-                self.cloudRows = result.items
-            }
+
+    /// 登录后一次性加载四类账号片单，供「我的-账户」页平铺展示。
+    /// 独立于 loadCloud（单类型），两者可共存；加载失败的分类保持原数组不变。
+    func loadAllCloud() {
+        guard account?.loggedIn == true else {
+            cloudFavorites = []; cloudHistory = []; cloudOnline = []; cloudUpcoming = []
+            cloudAllLoading = false; cloudAllError = nil
+            return
+        }
+        cloudAllTask?.cancel()
+        let identity = account?.id
+        cloudAllLoading = true; cloudAllError = nil
+        cloudAllTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { if self.account?.id == identity { self.cloudAllLoading = false } }
+            var failures: [String] = []
+            do {
+                let favs: CloudResult = try await self.request("account/favorites", [:])
+                if !Task.isCancelled, self.account?.id == identity { self.cloudFavorites = favs.items } else { return }
+            } catch { if !Task.isCancelled { failures.append("账户收藏") } }
+            do {
+                let hist: CloudResult = try await self.request("account/history", [:])
+                if !Task.isCancelled, self.account?.id == identity { self.cloudHistory = hist.items } else { return }
+            } catch { if !Task.isCancelled { failures.append("账户历史") } }
+            do {
+                let online: CloudResult = try await self.request("account/reservations", ["online": "true"])
+                if !Task.isCancelled, self.account?.id == identity { self.cloudOnline = online.items } else { return }
+            } catch { if !Task.isCancelled { failures.append("已上线预约") } }
+            do {
+                let upcoming: CloudResult = try await self.request("account/reservations", ["online": "false"])
+                if !Task.isCancelled, self.account?.id == identity { self.cloudUpcoming = upcoming.items } else { return }
+            } catch { if !Task.isCancelled { failures.append("待上线预约") } }
+            self.accountFavorites = Set(self.cloudFavorites.map { $0.series.id })
+            self.cloudAllError = failures.isEmpty ? nil : "以下片单读取失败：\(failures.joined(separator: "、"))"
         }
     }
-
-    /// 当前是否已收藏：登录看账户收藏，未登录看本机收藏。
-    func favoriteActive(_ series: Series) -> Bool {
-        if account?.loggedIn == true { return accountFavorites.contains(series.id) }
-        return library.favorite(series.id)
+    /// 加入/取消账户收藏。成功返回 true；账号接口失败时不抛错，而是回退到本机收藏并返回 false。
+    @discardableResult
+    func cloudFavorite(_ series: Series, add: Bool) -> Bool {
+        guard let identity = account?.id, account?.loggedIn == true else {
+            // 未登录无账户收藏语义，交由本机收藏处理。
+            return false
+        }
+        let target = add
+        perform {
+            do {
+                let _: OperationResult = try await self.request("account/favorite", [:], body: ["id": series.id, "add": target, "accountID": identity])
+            } catch {
+                // 账号接口不可用（如错误码 101144 / 未登录态失效等）：按目标方向回退到本机收藏，避免「直接收藏失败」。
+                guard !Task.isCancelled else { return }
+                self.library.setFavorite(series, add: target)
+                self.message = target ? "账号收藏暂不可用，已保存到本机收藏。" : "账号收藏暂不可用，已在本机移除收藏。"
+                // favoriteActive 已合并账户/本机两套集合，图标仍能正确反映本机状态。
+                return
+            }
+            self.message = target ? "已加入账户收藏" : "已取消账户收藏"
+            if target { self.accountFavorites.insert(series.id) } else { self.accountFavorites.remove(series.id) }
+            if self.section == "账户" && self.cloudType == "账户收藏" {
+                if let result: CloudResult = try? await self.request("account/favorites", [:]) {
+                    self.cloudRows = result.items
+                }
+            }
+        }
+        return true
     }
 
-    /// 切换收藏：登录走账户收藏，未登录走本机收藏。
+    /// 当前是否已收藏：登录看账户收藏 ∪ 本机收藏，未登录看本机收藏。
+    /// 合并视图保证「账号接口不可用回退到本机」后图标仍正确显示为已收藏。
+    func favoriteActive(_ series: Series) -> Bool {
+        let local = library.favorite(series.id)
+        if account?.loggedIn == true { return accountFavorites.contains(series.id) || local }
+        return local
+    }
+
+    /// 切换收藏：登录走账户收藏，未登录走本机收藏；账户收藏失败自动回退本机。
     func toggleFavorite(_ series: Series) {
         if account?.loggedIn == true {
-            cloudFavorite(series, add: !accountFavorites.contains(series.id))
+            let active = favoriteActive(series)
+            cloudFavorite(series, add: !active)
         } else {
             library.toggleFavorite(series)
         }

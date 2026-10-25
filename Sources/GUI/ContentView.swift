@@ -48,7 +48,6 @@ struct ContentView: View {
                     if model.busy || model.cloudLoading { ProgressView().controlSize(.small) }
                     Text(library.error ?? model.message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     Spacer()
-                    if let account = model.account { Label(account.nickname ?? "已登录", systemImage: "person.crop.circle").font(.caption).foregroundStyle(.secondary) }
                 }.padding(.horizontal, 20)
                     .frame(height: 44, alignment: .center)
             }.navigationTitle(model.showDetail ? (model.detail?.series.title ?? "播放") : model.navigation)
@@ -106,6 +105,11 @@ struct ContentView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 155, maximum: 230), spacing: 20)], alignment: .leading, spacing: 24) {
                         ForEach(items) { series in card(series) }
                     }.padding(.top, 4)
+                    // 滚动到底部时自动加载下一页（哨兵滚入可视区即触发），保留按钮作兑底。
+                    if ["找剧", "推荐"].contains(model.section), model.catalogMore {
+                        Color.clear.frame(height: 1)
+                            .onAppear { model.loadCatalog(more: true) }
+                    }
                     if model.section == "搜索" && model.hasMore { Button("加载更多") { model.search(more: true) }.disabled(model.busy).padding() }
                     if ["找剧", "推荐"].contains(model.section) && model.catalogMore { Button("加载更多") { model.loadCatalog(more: true) }.disabled(model.busy).padding() }
                 }
@@ -166,10 +170,10 @@ struct ContentView: View {
                             onChange()
                         } label: {
                             Text(label)
-                                .font(.subheadline)
+                                .font(.body)
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
+                                .padding(.vertical, 5)
                                 .background(selected ? Color.accentColor : Color.gray.opacity(0.16), in: Capsule())
                                 .foregroundStyle(selected ? Color.white : Color.primary)
                         }.buttonStyle(.plain)
@@ -206,7 +210,7 @@ struct ContentView: View {
                     Text([rank.rank.map { "第 \($0) 名" } ?? "", rank.heat].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(Color.accentColor).lineLimit(1)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(model.busy).accessibilityLabel(series.title)
+        }.buttonStyle(.plain).accessibilityLabel(series.title)
             .contextMenu {
                 Button(library.favorite(series.id) ? "取消本机收藏" : "加入本机收藏") { library.toggleFavorite(series) }
                 if model.account?.loggedIn == true {
@@ -234,8 +238,9 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 Image(systemName: item.icon).font(.system(size: iconSize))
                     .frame(width: 24, alignment: .center)
-                Text(item.title).font(.body)
-                Spacer()
+                Text(item.title).font(.body).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,38 +262,8 @@ struct EpisodeView: View {
             ImmersivePlayer(model: model)
                 .overlay { DanmakuOverlay(model: model, danmaku: model.danmaku) }
                 .overlay { PlayerTapLayer(model: model) }
-            // 右上角全屏入口——与上下控件一起随 playerControlsVisible 自动隐藏。
-            if model.playerControlsVisible {
-                VStack {
-                    HStack {
-                        Spacer()
-                        Button { model.fullscreenPlayback.show() } label: {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .padding(8)
-                                .background(.black.opacity(0.5), in: Circle())
-                        }.help("全屏").buttonStyle(.plain).padding(12)
-                    }
-                    Spacer()
-                }
-                .transition(.opacity)
-            }
-            // 顶部渐变栏（自动隐藏）
-            if model.playerControlsVisible {
-                VStack { PlayerTopBar(model: model); Spacer() }
-                    .transition(.opacity)
-            }
-            // 底部渐变栏（自动隐藏）
-            if model.playerControlsVisible {
-                VStack { Spacer(); PlayerBottomBar(model: model, library: library, detail: detail) }
-                    .transition(.opacity)
-            }
-            // 底部信息面板（选集/简介/相关作品）
-            if model.infoPanelOpen {
-                VStack { Spacer(); PlayerInfoPanel(model: model, library: library, detail: detail) }
-                    .transition(.opacity)
-            }
+            // 悬浮覆盖层：右上角全屏入口 + 顶部栏 + 底部栏 + 信息面板（与非全屏一致，由 PlayerOverlays 复用）。
+            PlayerOverlays(model: model, library: library, detail: detail, showsTransport: true, corner: .enterFullscreen)
         }
         .animation(.easeInOut(duration: 0.25), value: model.playerControlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.infoPanelOpen)

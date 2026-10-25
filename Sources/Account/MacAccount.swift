@@ -75,7 +75,7 @@ final class MacAccount {
         case "favorites":
             guard let credentials else { throw AccountError("请先扫码登录红果账号") }
             let rows = try await client.favorites(credentials: credentials)
-            return ["items": rows.map { seriesJSON($0.series) }]
+            return ["items": rows.map { ["series": seriesJSON($0.series)] }]
         case "favorite":
             guard let credentials else { throw AccountError("请先扫码登录红果账号") }
             guard let id = body["id"] as? String else { throw AccountError("剧集编号缺失") }
@@ -88,7 +88,7 @@ final class MacAccount {
             guard let credentials else { throw AccountError("请先扫码登录红果账号") }
             let online = (query["online"] ?? "true") != "false"
             let rows = try await client.reservations(credentials: credentials, online: online)
-            return ["items": rows.map { var d = seriesJSON($0.series); d["online"] = $0.online; d["publishText"] = $0.publishText; return d }]
+            return ["items": rows.map { ["series": seriesJSON($0.series), "online": $0.online, "publishText": $0.publishText] }]
         case "reserve":
             guard let credentials else { throw AccountError("请先扫码登录红果账号") }
             guard let id = body["id"] as? String else { throw AccountError("剧集编号缺失") }

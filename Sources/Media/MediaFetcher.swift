@@ -17,6 +17,24 @@ enum MediaFetcher {
         }
         guard let target = URL(string: url) else { throw MediaCryptoError("播放地址异常") }
 
+        // 媒体取流易受网络抖动/DNS/超时影响，且中途失败会导致 AVPlayer 静默卡死（既不到
+        // DidPlayToEndTime、也不置 status=failed）。对瞬时错误做指数退避重试，确定性错误不重试。
+        var lastError: Error = MediaCryptoError("视频服务器无响应")
+        for attempt in 0..<3 {
+            do {
+                return try await rangeOnce(target: target, start: start, end: end, knownTotal: knownTotal, session: session)
+            } catch {
+                lastError = error
+                guard Self.isTransient(error), attempt < 2 else { throw error }
+                // 退避 0.4s / 1.6s，避免对故障源雪崩重试。
+                try await Task.sleep(nanoseconds: UInt64(400_000_000) << (UInt64(attempt) * 2))
+            }
+        }
+        throw lastError
+    }
+
+    /// 单次分段请求。与重试拆开，便于单元测试与避免重试逻辑污染。
+    private static func rangeOnce(target: URL, start: Int64, end: Int64, knownTotal: Int64, session: URLSession) async throws -> RangeResult {
         var request = URLRequest(url: target)
         request.httpMethod = "GET"
         request.setValue(VendorConstants.VIDEO_UA, forHTTPHeaderField: "User-Agent")
@@ -61,6 +79,24 @@ enum MediaFetcher {
             throw NSError(domain: "HongguoMedia", code: 11, userInfo: [NSLocalizedDescriptionKey: "视频分段为空"])
         }
         return RangeResult(bytes: Array(data.prefix(Int(n))), total: full)
+    }
+
+    /// 判断错误是否值得重试：网络/超时/DNS/HTTP 5xx 视为瞬时；范围/格式不匹配等确定性错误不重试。
+    private static func isTransient(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
+                 .notConnectedToInternet, .dnsLookupFailed, .resourceUnavailable, .cancelled:
+                return true
+            default: return false
+            }
+        }
+        if let ns = error as NSError?, ns.domain == "HongguoMedia", (ns.code == 4 || ns.code == 5 || ns.code == 10) {
+            // code 4 = 无响应（服务端瞬时抖动）；code 5 = 非 206（可能被限流）；
+            // code 10 = 资源已变化（CDN 内容漂移，换一次请求可能拿到与 knownTotal 一致的内容）。
+            return true
+        }
+        return false
     }
 
     struct Prepared {

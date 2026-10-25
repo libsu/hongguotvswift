@@ -130,17 +130,19 @@ final class WebLogin {
     }
 
     private func finishRedirect(_ value: String) async throws {
-        guard var url = URL(string: BASE)?.appendingPathComponent(value.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
-            ?? URL(string: value, relativeTo: URL(string: BASE)) else {
+        let raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 服务端返回的 redirect_url 可能是完整 URL，也可能是相对路径（往往已含百分号编码与查询参数）。
+        // 不能使用 appendingPathComponent：它会对 '%'/'?' 等再次百分号编码，破坏既有编码与查询串，导致 404。
+        // 统一按「相对引用」解析：相对路径以官网根为基准，完整 URL 原样使用。
+        guard var url = URL(string: raw, relativeTo: URL(string: BASE)) ?? URL(string: raw) else {
             throw AccountError("登录确认地址无效")
         }
-        // 规范化：相对路径解析到官网根。
-        if url.absoluteString.hasPrefix("https://hongguoduanju.com/") { /* ok */ }
-        else if let resolved = URL(string: value, relativeTo: URL(string: BASE)) { url = resolved }
-        else { throw AccountError("登录确认地址无效") }
+        guard let scheme = url.scheme, (scheme == "https" || scheme == "http") else {
+            throw AccountError("登录确认地址无效")
+        }
 
         for _ in 0..<5 {
-            guard url.scheme == "https", url.host == "hongguoduanju.com" else { throw AccountError("登录确认跳转到不支持的站点") }
+            guard url.host == "hongguoduanju.com" else { throw AccountError("登录确认跳转到不支持的站点") }
             let response = try await http.request(url.absoluteString, method: "GET", headers: ["User-Agent": Self.UA, "Referer": BASE + "/"], limit: 2 * 1024 * 1024, followRedirects: false)
             if let setCookie = response.value(forHeaderField: "Set-Cookie") { setCookies(from: setCookie) }
             guard (200..<400).contains(response.statusCode) else { throw AccountError("登录确认失败（HTTP \(response.statusCode)）") }

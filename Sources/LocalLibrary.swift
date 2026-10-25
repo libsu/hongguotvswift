@@ -52,8 +52,18 @@ struct SavedLibrary: Codable {
         save()
     }
     func toggleFavorite(_ series: Series) {
-        if contents.favorites.contains(where: { $0.id == series.id }) { contents.favorites.removeAll { $0.id == series.id } }
-        else { contents.favorites.insert(series, at: 0); contents.favorites = Array(contents.favorites.prefix(2000)) }
+        setFavorite(series, add: !favorite(series.id))
+    }
+    /// 幂等设置收藏状态（add=true 加入，add=false 移除）。用于账号接口不可用时回退。
+    func setFavorite(_ series: Series, add: Bool) {
+        if add {
+            if !contents.favorites.contains(where: { $0.id == series.id }) {
+                contents.favorites.insert(series, at: 0)
+                contents.favorites = Array(contents.favorites.prefix(2000))
+            }
+        } else {
+            contents.favorites.removeAll { $0.id == series.id }
+        }
         save()
     }
     func removeHistory(_ id: String) { contents.history.removeAll { $0.id == id }; save() }

@@ -14,10 +14,12 @@ let discoveryNavigation = [
     NavigationItem(title: "榜单", icon: "chart.bar"),
 ]
 
-/// 「我的」侧栏条目固定放在最下角；未登录显示「登录」，登录后显示「我的」。
+/// 「我的」侧栏条目固定放在最下角；未登录显示「登录」，登录后优先显示用户名，无用户名时回退「我的」。
 extension Model {
     var accountRailTitle: String {
-        (account?.loggedIn == true) ? "我的" : "登录"
+        guard account?.loggedIn == true else { return "登录" }
+        if let nickname = account?.nickname, !nickname.isEmpty, nickname != "红果用户" { return nickname }
+        return "我的"
     }
     var accountRailIcon: String {
         (account?.loggedIn == true) ? "person.crop.circle.fill" : "person.crop.circle"

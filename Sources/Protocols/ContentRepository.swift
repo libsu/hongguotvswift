@@ -318,10 +318,17 @@ final class ContentRepository {
             let mainUrl = o.str("main_url")
             let codec = o.str("codec_type").lowercased()
             guard !mainUrl.isEmpty, !CodecCapabilities.isAV1(codec) else { continue }
-            let desc = o.str("quality_desc").isEmpty
-                ? (o.str("height").isEmpty ? (o.str("vheight").isEmpty ? (o.str("quality").isEmpty ? k : o.str("quality")) : o.str("vheight")) : o.str("height"))
-                : o.str("quality_desc")
-            rows.append((Self.qualityNumber(desc), k, o))
+            // 首选用 height 数字字段反推清晰度（源的质量描述字段可能为 "normal" 等无意义值）；
+            // 读不到数字时回退到 qualityNumber 解析文本（兼容旧源）。
+            let height = dimension(o, keys: ["vheight", "height"])
+            var quality = Self.qualityFromHeight(height)
+            if quality == 0 {
+                let desc = o.str("quality_desc").isEmpty ? (o.str("height").isEmpty ? (o.str("vheight").isEmpty ? (o.str("quality").isEmpty ? k : o.str("quality")) : o.str("vheight")) : o.str("height")) : o.str("quality_desc")
+                quality = Self.qualityNumber(desc)
+            }
+            // 诊断：打印档位解析结果，便于定位「清晰度解析失败导致自动选择漂移」。
+            Log.shared.info("streamLadder height=\(height.map(String.init) ?? "-") parsed=\(quality) key=\(k)")
+            rows.append((quality, k, o))
         }
         rows.sort { $0.quality > $1.quality }
         let seed = info.str("key_seed")
@@ -387,5 +394,21 @@ final class ContentRepository {
         let map: [String: Int] = ["1920": 1080, "1280": 720, "1024": 576, "854": 480, "640": 360]
         if let v = map[value] { return v }
         return Int(value) ?? 0
+    }
+
+    /// 由视频 height（像素）反推清晰度档位；非标准高度返回 0（交由 qualityNumber 兜底）。
+    static func qualityFromHeight(_ height: Int?) -> Int {
+        guard let height else { return 0 }
+        switch height {
+        case 1441...: return 2160
+        case 1081...1440: return 1440
+        case 810...1080: return 1080
+        case 721...809: return 720
+        case 577...720: return 576
+        case 541...576: return 540
+        case 481...540: return 480
+        case 361...480: return 360
+        default: return 0
+        }
     }
 }

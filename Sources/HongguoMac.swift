@@ -52,12 +52,21 @@ import AVFoundation
     @Published var qrImageData: Data?
     @Published var cloudType = "账户历史"
     @Published var cloudRows: [CloudEntry] = []
+    /// 「我的-账户」页四类账号片单的独立缓存（登录后一次性加载，平铺展示）。
+    @Published var cloudFavorites: [CloudEntry] = []
+    @Published var cloudHistory: [CloudEntry] = []
+    @Published var cloudOnline: [CloudEntry] = []
+    @Published var cloudUpcoming: [CloudEntry] = []
     /// 已登录账户的收藏剧集 id 集合，用于收藏按钮的「已收藏」态判断。
     @Published var accountFavorites: Set<String> = []
     @Published var cloudLoading = false
     @Published var cloudError: String?
     @Published var cloudLoadedKey: String?
     var cloudTask: Task<Void, Never>?
+    // 「我的-账户」页四类片单的一次性加载状态（独立于单类型 cloudLoading）。
+    @Published var cloudAllLoading = false
+    @Published var cloudAllError: String?
+    var cloudAllTask: Task<Void, Never>?
     var cloudRequestID = UUID()
     var accountGeneration = 0
     var pendingLoginID: String?
@@ -73,6 +82,10 @@ import AVFoundation
     @Published var quality: Int = UserDefaults.standard.object(forKey: "playbackQuality") as? Int ?? 0
     @Published var autoNext = UserDefaults.standard.object(forKey: "autoNext") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoNext, forKey: "autoNext") }
+    }
+    /// 首页直接播放：开启后进入首页加载完成即自动试播第一部，不再等待「开始刷剧」确认。
+    @Published var homeAutoPlay = UserDefaults.standard.object(forKey: "homeAutoPlay") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(homeAutoPlay, forKey: "homeAutoPlay") }
     }
     @Published var actualQuality = ""
     private var activeSeries: Series?
@@ -94,7 +107,7 @@ import AVFoundation
     var homeWarmDetail: Detail?
     var homeWarmQuality: Int?
     var homeGeneration = UUID()
-    @Published var homeCategory = "ALL"
+    @Published var homeCategory = "COMIC"
     /// 用户主动点「开始刷剧」后，加载完成即试播第一部；进入首页默认不自动试播。
     var autoTrialAfterLoad = false
     private var cloudResume: (Int, Double)?
@@ -147,7 +160,7 @@ import AVFoundation
         if base != nil { return }
         // 原生模式（无桥接 URL）：后端已是纯 Swift 实现，不再启动 JVM Helper。
         if backend != nil {
-            Log.shared.info("启动：Swift 原生模式（无 JVM Helper）")
+            Log.shared.info("启动：Swift 原生模式）")
             message = "输入剧名，开始找剧"
             if restoreSession { Task { await restoreAccount() } }
             return
@@ -284,7 +297,7 @@ import AVFoundation
             self.message = self.rows.isEmpty ? "没有找到相关剧集" : "已加载 \(self.rows.count) 部剧"
         }
     }
-    func open(_ series: Series, trial: Bool = false) {
+    func open(_ series: Series, trial: Bool = false, resumeEpisodeID: String? = nil, resumePosition: Double? = nil) {
         perform {
             self.comments.clear(); self.commentThread.clear(); self.danmaku.clear()
             // 立即保存并停止旧节目，避免加载详情期间旧节目还在播放。
@@ -298,7 +311,10 @@ import AVFoundation
             self.pendingNext = false
             self.warmedNearEndKey = nil
             self.detail = detail; self.showDetail = true; self.episode = nil; self.preview = trial; self.pendingTrial = trial; self.pendingResume = !trial
-            if self.section == "账户" && self.cloudType == "账户历史", let cloud = self.cloudRows.first(where: { $0.id == series.id }), let id = cloud.episodeID, let index = detail.episodes.firstIndex(of: id) {
+            // 云端续播优先：调用方显式传入 episodeID/position（账户历史卡片）。
+            if let resumeEpisodeID, let index = detail.episodes.firstIndex(of: resumeEpisodeID) {
+                self.cloudResume = (index, resumePosition ?? 0)
+            } else if self.section == "账户" && self.cloudType == "账户历史", let cloud = self.cloudRows.first(where: { $0.id == series.id }), let id = cloud.episodeID, let index = detail.episodes.firstIndex(of: id) {
                 self.cloudResume = (index, cloud.position ?? 0)
             } else { self.cloudResume = nil }
             self.related = []; self.relatedMessage = "正在读取相关作品…"
