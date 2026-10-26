@@ -38,9 +38,14 @@ final class AppCommentPages {
     }
 
     static func parse(result: [String: Any], series: String, episode: String, cursor: String) throws -> [String: Any] {
-        guard result.optInt("code", -1) == 0 else { throw ContentError("评论接口未返回成功数据") }
+        // 服务端信封为 PascalCase（Code/Message/Data），与内容接口一致；兼容旧的小写键。
+        let code = result.optInt("Code", result.optInt("code", -1))
+        guard code == 0 else {
+            let msg = result.str("Message", result.str("message"))
+            throw ContentError(msg.isEmpty ? "评论接口未返回成功数据" : "评论接口返回错误：\(msg)（错误码 \(code)）")
+        }
         let previous = try validateCursor(cursor)
-        guard let data = result.obj("data"), let info = data.obj("common_list_info") else {
+        guard let data = result.obj("Data") ?? result.obj("data"), let info = data.obj("common_list_info") else {
             throw ContentError("评论接口未返回成功数据")
         }
         let more = info.optBool("has_more")

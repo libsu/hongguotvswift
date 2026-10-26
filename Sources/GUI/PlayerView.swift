@@ -216,8 +216,11 @@ struct PlayerTapLayer: View {
             }
             .onContinuousHover { phase in
                 switch phase {
-                case .active: model.revealPlayerControls()
-                case .ended: break
+                case .active(_):
+                    model.hoveringPlayer = true
+                    model.revealPlayerControls()
+                case .ended:
+                    model.hoveringPlayer = false
                 }
             }
     }
@@ -244,84 +247,71 @@ struct PlayerBottomBar: View {
     @ObservedObject var model: Model
     @ObservedObject var library: LocalLibrary
     let detail: Detail
-    /// 是否显示画中画（PiP）与投屏（AirPlay）。全屏播放不显示这两个系统级传输控件。
     var showsTransport: Bool = true
 
     private enum PickerKind { case quality, speed }
     @State private var expandedPicker: PickerKind? = nil
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in
-            VStack(spacing: 12) {
+        VStack(spacing: 12) {
+            HStack(spacing: 18) {
+                Button { model.togglePlayback() } label: {
+                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.title2)
+                }.help(model.isPlaying ? "暂停" : "播放").buttonStyle(.borderless)
+                // 时间 + 进度条由 model.playbackTime（AVPlayer 周期时间观察者）驱动，
+                // 不再在 SwiftUI TimelineView 里自行采样 currentTime，避免跳动。
                 HStack(spacing: 18) {
-                    Button { model.togglePlayback() } label: {
-                        Image(systemName: model.player.rate > 0 ? "pause.fill" : "play.fill").font(.title2)
-                    }.help(model.player.rate > 0 ? "暂停" : "播放").buttonStyle(.borderless)
-                    Text("\(clock(model.player.currentTime().seconds)) / \(clock(duration))").monospacedDigit().font(.caption).foregroundStyle(.secondary)
-                    // 进度条：位于时间之后、选集之前，占据中间剩余宽度。
+                    Text("\(clock(model.playbackTime)) / \(clock(duration))").monospacedDigit().font(.caption).foregroundStyle(.secondary)
                     Slider(value: Binding(
-                        get: { model.player.currentTime().seconds.isFinite ? model.player.currentTime().seconds : 0 },
+                        get: { model.playbackTime.isFinite ? model.playbackTime : 0 },
                         set: { model.player.seek(to: CMTime(seconds: $0, preferredTimescale: 600)) }
                     ), in: 0...max(1, duration))
                     .tint(.white)
-                    // 选集 + 下一集（正式观看）
-                    Button { model.infoPanelOpen.toggle(); model.revealPlayerControls() } label: {
-                        Image(systemName: "list.bullet").font(.body)
-                    }.help("选集").buttonStyle(.borderless)
-                    if !model.preview, let episode = model.episode {
-                        Button { model.play(episode + 1) } label: {
-                            Image(systemName: "forward.end.fill").font(.body)
-                        }.help("下一集").buttonStyle(.borderless)
-                            .disabled(episode + 1 >= detail.episodes.count)
-                    }
-                    // 评论入口暂时隐藏。
-                    Button { model.toggleFavorite(detail.series) } label: {
-                        Image(systemName: model.favoriteActive(detail.series) ? "star.fill" : "star")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(model.favoriteActive(detail.series) ? .white : Color.white.opacity(0.55))
-                    }.help(model.favoriteActive(detail.series) ? "取消收藏" : "收藏").buttonStyle(.borderless)
+                }
+                // 选集 + 下一集（正式观看）
+                Button { model.infoPanelOpen.toggle(); model.revealPlayerControls() } label: {
+                    Image(systemName: "list.bullet").font(.body)
+                }.help("选集").buttonStyle(.borderless)
+                if !model.preview, let episode = model.episode {
+                    Button { model.play(episode + 1) } label: {
+                        Image(systemName: "forward.end.fill").font(.body)
+                    }.help("下一集").buttonStyle(.borderless)
+                        .disabled(episode + 1 >= detail.episodes.count)
+                }
+                // 评论入口暂时隐藏。
+                Button { model.toggleFavorite(detail.series) } label: {
+                    Image(systemName: model.favoriteActive(detail.series) ? "star.fill" : "star")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(model.favoriteActive(detail.series) ? .white : Color.white.opacity(0.55))
+                }.help(model.favoriteActive(detail.series) ? "取消收藏" : "收藏").buttonStyle(.borderless)
                 DanmakuControl(danmaku: model.danmaku)
-                // 清晰度（自绘展开胶囊）
                 pickerCapsule(icon: "", text: qualityLabel, kind: .quality)
-                // 倍速（自绘展开胶囊）
                 pickerCapsule(icon: "", text: "倍速" + speedText(model.speed), kind: .speed)
                 if showsTransport {
                     // 画中画（PiP）
                     Button { model.togglePictureInPicture() } label: {
                         Image(systemName: model.pipActive ? "pip.exit" : "pip.enter").font(.body)
                     }.help("画中画").buttonStyle(.borderless)
-                    // 投屏入口已隐藏：系统 AVRoutePickerView 实为音频路由，无法投视频画面。
-                    // AirPlayPicker(player: model.player).frame(width: 32, height: 26)
-                }
-                }
-                // 自绘展开选项行（清晰度 / 倍速）
-                if let picker = expandedPicker {
-                    pickerOptions(picker)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
-            .padding(.horizontal, 20).padding(.vertical, 14)
-            .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
-            .tint(.white)
+            // 自绘展开选项行（清晰度 / 倍速）
+            if let picker = expandedPicker {
+                pickerOptions(picker)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
+        .padding(.horizontal, 20).padding(.vertical, 14)
+        .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
+        .tint(.white)
     }
 
     // MARK: - 自绘选择器
 
     private func pickerCapsule(icon: String, text: String, kind: PickerKind) -> some View {
-        Button {
+        SelectableCapsule(label: text, isSelected: expandedPicker == kind, style: .dark, icon: icon, showsChevron: true, verticalPadding: 5) {
             withAnimation(.easeInOut(duration: 0.2)) { expandedPicker = (expandedPicker == kind) ? nil : kind }
             model.revealPlayerControls()
-        } label: {
-            HStack(spacing: 5) {
-                if !icon.isEmpty { Image(systemName: icon).font(.caption) }
-                Text(text).font(.caption).fontWeight(.medium)
-                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).opacity(0.6)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(expandedPicker == kind ? Color.white.opacity(0.85) : Color.white.opacity(0.14), in: Capsule())
-            .foregroundStyle(expandedPicker == kind ? Color.black.opacity(0.85) : .white)
-        }.buttonStyle(.plain)
+        }
     }
 
     @ViewBuilder private func pickerOptions(_ picker: PickerKind) -> some View {
@@ -343,12 +333,7 @@ struct PlayerBottomBar: View {
     }
 
     private func optionChip(_ text: String, selected: Bool, onSelect: @escaping () -> Void) -> some View {
-        Button(action: onSelect) {
-            Text(text).font(.caption).fontWeight(.medium)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(selected ? Color.white.opacity(0.85) : Color.white.opacity(0.14), in: Capsule())
-                .foregroundStyle(selected ? Color.black.opacity(0.85) : Color.white)
-        }.buttonStyle(.plain)
+        SelectableCapsule(label: text, isSelected: selected, style: .dark, verticalPadding: 6, action: onSelect)
     }
 
     // MARK: - 辅助
@@ -417,9 +402,8 @@ struct PlayerInfoPanel: View {
                         ForEach(model.related) { work in
                             Button { model.infoPanelOpen = false; if work.upcoming { model.reserve(work) } else { model.open(work.series) } } label: {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    AsyncImage(url: URL(string: work.series.cover)) { image in image.resizable().scaledToFill() }
-                                        placeholder: { Rectangle().fill(.gray.opacity(0.18)).overlay(Image(systemName: "film")) }
-                                        .frame(width: 110, height: 150).clipped().cornerRadius(10)
+                                    CoverImageView(urlString: work.series.cover)
+                                        .frame(width: Theme.posterSmallWidth, height: Theme.posterSmallHeight).clipped().cornerRadius(Theme.cornerCard)
                                     Text(work.series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
                                 }.frame(width: 110, alignment: .leading)
                             }.buttonStyle(.plain).padding(4)
@@ -431,7 +415,7 @@ struct PlayerInfoPanel: View {
         }
         .padding(20)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
         .padding(.horizontal, 20).padding(.bottom, 16)
     }
 }

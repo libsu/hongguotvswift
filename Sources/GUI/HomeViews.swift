@@ -9,19 +9,12 @@ struct HomeFeedView: View {
         VStack(spacing: 18) {
             HStack(spacing: 16) {
                 // 推荐频道选择 + 换一批（合并到左上）。
-                HStack(spacing: 8) {
-                    Button("推荐") { if model.homeCategory != "ALL" { model.homeCategory = "ALL"; model.loadHome() } }
-                        .buttonStyle(.plain).padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(model.homeCategory == "ALL" ? Color.accentColor : Color.gray.opacity(0.16), in: Capsule())
-                        .foregroundStyle(model.homeCategory == "ALL" ? Color.white : Color.primary)
-                    Button("真人剧") { if model.homeCategory != "REAL" { model.homeCategory = "REAL"; model.loadHome() } }
-                        .buttonStyle(.plain).padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(model.homeCategory == "REAL" ? Color.accentColor : Color.gray.opacity(0.16), in: Capsule())
-                        .foregroundStyle(model.homeCategory == "REAL" ? Color.white : Color.primary)
-                    Button("漫剧") { if model.homeCategory != "COMIC" { model.homeCategory = "COMIC"; model.loadHome() } }
-                        .buttonStyle(.plain).padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(model.homeCategory == "COMIC" ? Color.accentColor : Color.gray.opacity(0.16), in: Capsule())
-                        .foregroundStyle(model.homeCategory == "COMIC" ? Color.white : Color.primary)
+                HStack(alignment: .center, spacing: Theme.spacingMD) {
+                    CapsuleFilterRow(title: nil, options: [
+                        .init(label: "推荐", value: "ALL"),
+                        .init(label: "真人剧", value: "REAL"),
+                        .init(label: "漫剧", value: "COMIC"),
+                    ], selection: $model.homeCategory, layout: .row) { model.loadHome() }
                     Button { model.loadHome() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.plain).help("换一批").disabled(model.busy)
                 }.disabled(model.busy)
                 Spacer()
@@ -34,7 +27,7 @@ struct HomeFeedView: View {
                     NativePlayer(player: model.player)
                         .overlay { DanmakuOverlay(model: model, danmaku: model.danmaku) }
                         .overlay(alignment: .topTrailing) { PlayerCornerButtons(model: model) }
-                        .background(.black).cornerRadius(16)
+                        .background(.black).cornerRadius(Theme.cornerLarge)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
@@ -62,7 +55,7 @@ struct HomeFeedView: View {
             } else {
                 VStack(spacing: 18) {
                     Image(systemName: "play.rectangle").font(.system(size: 52)).foregroundStyle(Color.accentColor)
-                    Text(model.busy ? "正在准备试播…" : "看看下一部好故事").font(.title2)
+                    Text(model.loadingList ? "正在准备试播…" : "看看下一部好故事").font(.title2)
                     Button("开始刷剧") { model.startHomeTrial() }.disabled(model.busy)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -193,26 +186,13 @@ struct MyAccountView: View {
     }
 
     private func seriesCard(_ series: Series) -> some View {
-        Button { model.open(series) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                AsyncImage(url: URL(string: series.cover)) { image in image.resizable().scaledToFill() }
-                    placeholder: { Rectangle().fill(.gray.opacity(0.18)).overlay(Image(systemName: "film")) }
-                    .frame(width: 110, height: 150).clipped().cornerRadius(10)
-                Text(series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
-            }.frame(width: 110, alignment: .leading)
-        }.buttonStyle(.plain).padding(4)
+        SeriesPosterCard(cover: series.cover, title: series.title) { model.open(series) }
     }
 
     private func historyCard(_ record: WatchRecord) -> some View {
-        Button { model.open(record.series) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                AsyncImage(url: URL(string: record.series.cover)) { image in image.resizable().scaledToFill() }
-                    placeholder: { Rectangle().fill(.gray.opacity(0.18)).overlay(Image(systemName: "film")) }
-                    .frame(width: 110, height: 150).clipped().cornerRadius(10)
-                Text(record.series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
-                Text(record.label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            }.frame(width: 110, alignment: .leading)
-        }.buttonStyle(.plain).padding(4)
+        SeriesPosterCard(cover: record.series.cover, title: record.series.title, subtitle: record.label) {
+            model.open(record.series)
+        }
     }
 
     // MARK: - 账户四类片单
@@ -234,34 +214,23 @@ struct MyAccountView: View {
     }
 
     private func cloudCard(_ entry: CloudEntry, style: AccountSectionStyle) -> some View {
-        Button {
+        SeriesPosterCard(cover: entry.series.cover, title: entry.series.title, subtitle: cloudSubtitle(entry, style: style)) {
             if style == .reservation && entry.online == false { model.message = "该剧待上线，暂时无法播放" }
             else if style == .history { model.open(entry.series, resumeEpisodeID: entry.episodeID, resumePosition: entry.position) }
             else { model.open(entry.series) }
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                AsyncImage(url: URL(string: entry.series.cover)) { image in image.resizable().scaledToFill() }
-                    placeholder: { Rectangle().fill(.gray.opacity(0.18)).overlay(Image(systemName: "film")) }
-                    .frame(width: 110, height: 150).clipped().cornerRadius(10)
-                Text(entry.series.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .topLeading)
-                cloudSubtitle(entry, style: style)
-            }.frame(width: 110, alignment: .leading)
-        }.buttonStyle(.plain).padding(4)
+        }
     }
 
-    @ViewBuilder
-    private func cloudSubtitle(_ entry: CloudEntry, style: AccountSectionStyle) -> some View {
+    private func cloudSubtitle(_ entry: CloudEntry, style: AccountSectionStyle) -> String? {
         switch style {
         case .favorite:
-            EmptyView()
+            return nil
         case .history:
             let ep = (entry.episodeIndex ?? 0) + 1
             let pos = max(0, Int(entry.position ?? 0))
-            Text("第 \(ep) 集 · \(String(format: "%02d:%02d", pos / 60, pos % 60))")
-                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            return "第 \(ep) 集 · \(String(format: "%02d:%02d", pos / 60, pos % 60))"
         case .reservation:
-            Text(entry.online == false ? "待上线" : ((entry.publishText ?? "").isEmpty ? "已上线" : entry.publishText!))
-                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            return entry.online == false ? "待上线" : ((entry.publishText ?? "").isEmpty ? "已上线" : entry.publishText)
         }
     }
 }

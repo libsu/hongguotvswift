@@ -26,11 +26,11 @@ struct TVLibraryView: View {
     @ObservedObject var model: Model
 
     // 顶部页签：首页 / 找剧 / 榜单 / 我的。搜索是导航栏右侧的孤立 TextField，不占页签按钮。
-    private let tabs: [(title: String, icon: String)] = [
-        ("首页", "play.rectangle"),
-        ("找剧", "square.grid.2x2"),
-        ("榜单", "chart.bar"),
-        ("我的", "person.crop.circle"),
+    private let tabs: [(title: String, icon: String, destination: Destination)] = [
+        ("首页", "play.rectangle", .home),
+        ("找剧", "square.grid.2x2", .discover),
+        ("榜单", "chart.bar", .rank),
+        ("我的", "person.crop.circle", .mine),
     ]
 
     var body: some View {
@@ -48,13 +48,13 @@ struct TVLibraryView: View {
         // 菜单键（Siri Remote 的 Menu / 返回）从任意栏目回到首页，符合 tvOS 惯例。
         // 扫码登录浮层显示期间不抢 Menu，交给浮层内的 cancelLogin 处理。
         .onExitCommand {
-            if model.qrImageData == nil && model.navigation != "首页" { model.navigate("首页") }
+            if model.qrImageData == nil && model.navigation != .home { model.navigate(.home) }
         }
         .task {
             // 冷启动完成后引导到首页（与 macOS ContentView 的引导一致）。
             while model.busy && !Task.isCancelled { try? await Task.sleep(nanoseconds: 100_000_000) }
-            if !Task.isCancelled && model.rows.isEmpty && model.catalogRows.isEmpty && model.navigation == "搜索" {
-                model.navigate("首页")
+            if !Task.isCancelled && model.rows.isEmpty && model.catalogRows.isEmpty && model.navigation == .search {
+                model.navigate(.home)
             }
         }
     }
@@ -62,15 +62,15 @@ struct TVLibraryView: View {
     @ViewBuilder
     private func content(canvasHeight: CGFloat) -> some View {
         switch model.navigation {
-        case "首页":
+        case .home:
             TVHomeView(model: model, canvasHeight: canvasHeight)
-        case "找剧":
+        case .discover:
             TVCatalogView(model: model, canvasHeight: canvasHeight)
-        case "榜单":
+        case .rank:
             TVBoardView(model: model, canvasHeight: canvasHeight)
-        case "我的":
+        case .mine:
             TVMineView(model: model, canvasHeight: canvasHeight)
-        case "搜索":
+        case .search:
             TVSearchView(model: model, canvasHeight: canvasHeight)
         default:
             TVHomeView(model: model, canvasHeight: canvasHeight)
@@ -83,7 +83,7 @@ struct TVLibraryView: View {
 /// 顶部横向焦点导航栏：四个按钮（首页/找剧/榜单/我的）+ 右侧孤立搜索 TextField。
 struct TVNavBar: View {
     @ObservedObject var model: Model
-    let tabs: [(title: String, icon: String)]
+    let tabs: [(title: String, icon: String, destination: Destination)]
     @FocusState private var focused: String?
     @FocusState private var searchFocused: Bool
 
@@ -93,10 +93,10 @@ struct TVNavBar: View {
                 TVTabButton(
                     title: tab.title,
                     icon: tab.icon,
-                    selected: model.navigation == tab.title,
+                    selected: model.navigation == tab.destination,
                     focused: focused == tab.title
                 ) {
-                    if model.navigation != tab.title { model.navigate(tab.title) }
+                    if model.navigation != tab.destination { model.navigate(tab.destination) }
                 }
                 .focused($focused, equals: tab.title)
             }
@@ -149,7 +149,7 @@ struct TVHomeView: View {
             } else {
                 TVPosterGrid(
                     items: model.catalogRows,
-                    section: "首页",
+                    section: .home,
                     model: model,
                     focusedSeries: $focus,
                     hasMore: model.catalogMore,
@@ -197,7 +197,7 @@ struct TVCatalogView: View {
             } else {
                 TVPosterGrid(
                     items: model.catalogRows,
-                    section: "找剧",
+                    section: .discover,
                     model: model,
                     focusedSeries: $focus,
                     hasMore: model.catalogMore,
@@ -209,7 +209,7 @@ struct TVCatalogView: View {
         } status: {
             model.message
         }
-        .task { if model.catalogRows.isEmpty || model.catalogKind != "找剧" { model.loadCatalog() } }
+        .task { if model.catalogRows.isEmpty || model.catalogKind != .discover { model.loadCatalog() } }
     }
 
     private var filterBar: some View {
@@ -263,7 +263,7 @@ struct TVBoardView: View {
             } else {
                 TVPosterGrid(
                     items: model.catalogRows,
-                    section: "榜单",
+                    section: .rank,
                     model: model,
                     focusedSeries: $focus,
                     hasMore: false,
@@ -275,7 +275,7 @@ struct TVBoardView: View {
         } status: {
             model.message
         }
-        .task { if model.catalogRows.isEmpty || model.catalogKind != "榜单" { model.loadCatalog() } }
+        .task { if model.catalogRows.isEmpty || model.catalogKind != .rank { model.loadCatalog() } }
     }
 }
 
@@ -294,7 +294,7 @@ struct TVSearchView: View {
             } else if !model.rows.isEmpty {
                 TVPosterGrid(
                     items: model.rows,
-                    section: "搜索",
+                    section: .search,
                     model: model,
                     focusedSeries: $focusedSeries,
                     hasMore: model.hasMore,

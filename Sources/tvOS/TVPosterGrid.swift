@@ -6,7 +6,7 @@ import SwiftUI
 /// 单行海报栏：横向滚动，卡片占满可用高度（cardHeight 由外部分配），Siri Remote 左右移动焦点。
 struct TVPosterGrid: View {
     let items: [Series]
-    let section: String
+    let section: Section
     @ObservedObject var model: Model
     @FocusState.Binding var focusedSeries: String?
     let hasMore: Bool
@@ -26,7 +26,7 @@ struct TVPosterGrid: View {
                 ForEach(items) { series in
                     TVPosterCard(
                         series: series,
-                        rank: section == "榜单" ? model.rankPositions[series.id] : nil,
+                        rank: section == .rank ? model.rankPositions[series.id] : nil,
                         focused: focusedSeries == series.id,
                         coverWidth: coverWidth,
                         coverHeight: coverHeight

@@ -7,9 +7,13 @@ import Foundation
 struct ContentError: Error, LocalizedError, CustomStringConvertible {
     let message: String
     let statusCode: Int
-    init(_ message: String, statusCode: Int = 0) {
+    /// 是否属于「重试可恢复」的软失败。为空响应这类「HTTP 200 但 body 空」的抖动时置 true，
+    /// 让上层（自动连播、transient 重试）能据此决定是否重试，而非靠 statusCode 猜。
+    let retryable: Bool
+    init(_ message: String, statusCode: Int = 0, retryable: Bool = false) {
         self.message = message
         self.statusCode = statusCode
+        self.retryable = retryable
     }
     var description: String { message }
     var errorDescription: String? { message }
@@ -25,7 +29,7 @@ private extension HTTPURLResponse {
 /// Swift 侧 URLSession 的临时错误通过 URLError 表达，此处按状态码与错误域判断。
 func isTransientNetworkError(_ error: Error) -> Bool {
     if let content = error as? ContentError {
-        return [500, 502, 503, 504].contains(content.statusCode)
+        return content.retryable || [500, 502, 503, 504].contains(content.statusCode)
     }
     let ns = error as NSError
     if ns.domain == NSURLErrorDomain {

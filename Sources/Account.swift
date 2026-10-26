@@ -135,7 +135,7 @@ extension Model {
         account = result
         cloudRows = []; cloudError = nil; cloudLoadedKey = nil
         accountFavorites = []
-        if section == "账户" { loadCloud() }
+        if section == .account { loadCloud() }
         // 登录成功后预加载四类账号片单，供「我的-账户」页平铺展示。
         loadAllCloud()
     }
@@ -147,19 +147,18 @@ extension Model {
             return
         }
         let type = cloudType
-        let path = type == "账户历史" ? "history" : type == "账户收藏" ? "favorites" : "reservations"
         cloudLoading = true; cloudError = nil; cloudLoadedKey = nil; cloudRows = []
         cloudTask = Task {
             defer { if cloudRequestID == requestID { cloudLoading = false } }
             do {
-                let result: CloudResult = try await request("account/" + path, ["online": String(type != "待上线")])
+                let result: CloudResult = try await request("account/" + type.path, ["online": String(type.onlineOnly)])
                 guard !Task.isCancelled, cloudRequestID == requestID, account?.id == identity, cloudType == type else { return }
-                cloudRows = result.items; cloudLoadedKey = identity + ":" + type
-                if type == "账户收藏" { accountFavorites = Set(result.items.map { $0.series.id }) }
-                message = "已读取 \(result.items.count) 条\(type)"
+                cloudRows = result.items; cloudLoadedKey = identity + ":" + type.rawValue
+                if type == .favorites { accountFavorites = Set(result.items.map { $0.series.id }) }
+                message = "已读取 \(result.items.count) 条\(type.title)"
             } catch {
                 guard !Task.isCancelled, cloudRequestID == requestID, account?.id == identity else { return }
-                cloudError = "\(type)读取失败：\(error.localizedDescription)"
+                cloudError = "\(type.title)读取失败：\(error.localizedDescription)"
             }
         }
     }
@@ -220,7 +219,7 @@ extension Model {
             }
             self.message = target ? "已加入账户收藏" : "已取消账户收藏"
             if target { self.accountFavorites.insert(series.id) } else { self.accountFavorites.remove(series.id) }
-            if self.section == "账户" && self.cloudType == "账户收藏" {
+            if self.section == .account && self.cloudType == .favorites {
                 if let result: CloudResult = try? await self.request("account/favorites", [:]) {
                     self.cloudRows = result.items
                 }

@@ -24,6 +24,6 @@ struct Series: Codable, Identifiable {
     }
 }
 struct SearchResult: Decodable { let items: [Series]; let hasMore: Bool }
-struct Detail: Decodable { let series: Series; let episodes: [String] }
+struct Detail: Codable { let series: Series; let episodes: [String] }
 struct PlayResult: Decodable { let url: String; let quality: String }
 struct BridgeError: Decodable { let error: String }

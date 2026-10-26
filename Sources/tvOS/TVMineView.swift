@@ -44,7 +44,7 @@ struct TVMineView: View {
             } else {
                 TVPosterGrid(
                     items: items,
-                    section: "我的",
+                    section: .mine,
                     model: model,
                     focusedSeries: $focus,
                     hasMore: false,

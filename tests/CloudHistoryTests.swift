@@ -42,7 +42,7 @@ final class AccountFixture: URLProtocol {
             }
             fatalError("Cloud loading did not settle")
         }
-        model.navigate("账户历史")
+        model.navigate(.accountHistory)
         assert(model.cloudRows.isEmpty && !model.cloudLoading)
         // Both QR confirmation and restored sessions use this acceptance path.
         model.acceptAccount(AccountResult(loggedIn: true, id: "fixture-user", nickname: "测试用户", credentials: nil))
@@ -50,13 +50,13 @@ final class AccountFixture: URLProtocol {
         try await settled()
         assert(model.cloudRows.count == 1 && model.cloudRows[0].episodeIndex == 2)
         assert(model.cloudLoadedKey != nil && model.cloudError == nil)
-        AccountFixture.change("empty"); model.navigate("账户收藏"); try await settled()
+        AccountFixture.change("empty"); model.navigate(.accountFavorites); try await settled()
         assert(model.cloudRows.isEmpty && model.cloudLoadedKey != nil && model.cloudError == nil)
-        AccountFixture.change("error"); model.navigate("账户历史"); try await settled()
+        AccountFixture.change("error"); model.navigate(.accountHistory); try await settled()
         assert(model.cloudError != nil && model.cloudLoadedKey == nil && !model.cloudLoading)
         AccountFixture.change("history"); model.loadCloud(); try await settled()
         assert(model.cloudRows.count == 1 && model.cloudError == nil)
-        assert(!model.showDetail && model.navigation == "账户历史")
+        assert(!model.showDetail && model.navigation == .accountHistory)
         print("Login-triggered cloud history, navigation, empty/error distinction and retry: PASS")
     }
 }

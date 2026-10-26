@@ -37,7 +37,7 @@ final class FeedFixture: URLProtocol {
             fatalError("Feed operation timed out")
         }
         try await wait { !model.busy }
-        model.navigate("首页")
+        model.navigate(.home)
         try await wait { !model.busy && model.episode == 0 && model.homeWarmDetail != nil }
         assert(model.preview && model.catalogRows.count == 2 && model.detail?.series.id == "a")
         assert(model.library.contents.history.isEmpty)
@@ -47,7 +47,7 @@ final class FeedFixture: URLProtocol {
         assert(FeedFixture.paths.filter { $0 == "detail" }.count == detailCalls, "Warm detail must be reused")
         assert(model.preview && model.library.contents.history.isEmpty)
         model.watchFull(); assert(!model.preview)
-        model.navigate("我的"); assert(model.section == "我的" && !model.showDetail)
+        model.navigate(.mine); assert(model.section == .mine && !model.showDetail)
         print("Home automatic trial, bounded next preload, cached switching, trial isolation and My navigation: PASS")
     }
 }

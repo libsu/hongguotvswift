@@ -246,16 +246,14 @@ func xor(_ a: [UInt8], _ b: [UInt8]) -> [UInt8] {
     a.enumerated().map { i, v in v ^ b[i % b.count] }
 }
 
-/// 设计目标：上游 rol(v, n) = Integer.rotateLeft（Int32 循环左移）。
-/// 签名用 Signer.ror32、SM3 用私有 rotl，此自由函数当前未被调用；保留以对齐上游位运算语义。
+/// 死代码：Int32 循环左移，当前未被调用（签名用 Signer.ror32、SM3 用私有 rotl）。
 func rol(_ v: Int32, _ n: Int) -> Int32 {
     let u = UInt32(bitPattern: v)
     let nn = UInt32(n & 31)
     return Int32(bitPattern: (u << nn) | (u >> (32 - nn)))
 }
 
-/// 设计目标：上游 ror(v, n) = Integer.rotateRight（Int32 循环右移）。
-/// 当前未被调用（签名/散列用各自私有移位）；保留以对齐上游位运算语义。
+/// 死代码：Int32 循环右移，当前未被调用。
 func ror(_ v: Int32, _ n: Int) -> Int32 {
     let u = UInt32(bitPattern: v)
     let nn = UInt32(n & 31)

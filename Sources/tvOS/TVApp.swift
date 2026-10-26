@@ -6,7 +6,7 @@ import SwiftUI
 import AVKit
 
 /// tvOS 平台集成：实现 ModelPlatformInterface，规避 macOS 的 AppKit 集成。
-/// tvOS 无 JVM Helper、无全局键盘监听、无自更新；画中画/全屏由系统 AVPlayerViewController 接管。
+/// tvOS 无全局键盘监听、无自更新；画中画/全屏由系统 AVPlayerViewController 接管。
 @MainActor
 final class TVPlatformIntegration: ModelPlatformInterface {
     private weak var model: Model?

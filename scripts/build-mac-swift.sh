@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-only
-# 独立 macOS Swift 客户端构建（脱离 JVM / Gradle / Kotlin）。
+# 独立 macOS Swift 客户端构建。
 # 只编译 Sources 下的全部 Swift 源码 + 资源，打成一个单 Swift 二进制 .app。
 set -euo pipefail
 # 兼容 Apple Silicon (arm64) 与 Intel (x86_64)，目标三元组根据本机架构动态确定。
@@ -35,6 +35,6 @@ VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Co
 BUILD=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$APP/Contents/Info.plist")
 ARCHIVE="$DEST/HongGuo-$(uname -m)-$VERSION-build$BUILD-test.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
-python3 "$ROOT/scripts/prepare-mac-release.py" --app "$APP" --zip "$ARCHIVE"
+python3 "$ROOT/scripts/prepare-mac-release.py" --app "$APP" --zip "$ARCHIVE" --arch "$(uname -m)"
 echo "$APP"
 echo "$ARCHIVE"

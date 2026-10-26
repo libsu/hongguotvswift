@@ -1,6 +1,6 @@
 # 红果（Swift 客户端）
 
-红果短剧的原生客户端，纯 Swift 实现，支持 **macOS** 与 **tvOS（Apple TV）** 两个平台，不依赖 JVM、Kotlin 或 Gradle。
+红果短剧的原生客户端，纯 Swift 实现，支持 **macOS** 与 **tvOS（Apple TV）** 两个平台。
 
 - **macOS**：Swift + SwiftUI + AppKit + AVKit，单二进制打包成 `.app`。
 - **tvOS**：Swift + SwiftUI + UIKit + AVKit，以 `AVPlayerViewController` 承载播放，使用 Siri Remote 焦点导航。
@@ -101,6 +101,9 @@ bash scripts/test-mac-codec.sh
 
 # 本机记录、云历史、播放控件、评论、弹幕等隔离回归（不联网）
 bash scripts/test-mac-local.sh
+
+# 死代码守护：校验一批「暂未接入/无调用方」符号确实零引用（纯静态，不编译）
+bash scripts/check-dead-code.sh
 ```
 
 ## 数据和账号

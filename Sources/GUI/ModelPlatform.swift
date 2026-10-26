@@ -23,7 +23,7 @@ final class MacPlatformIntegration: ModelPlatformInterface {
             playbackGuard = PlaybackGuard(model: model)
             playbackGuard?.start()
         }
-        // 正式原生运行（无桥接 URL）才会自动检查更新；测试走注入桥时不查。
+        // 正式运行时才自动检查更新；测试（走本地 HTTP 桥）时不查。
         if model?.backend != nil { model?.updates.autoCheckIfEnabled() }
     }
 

@@ -4,8 +4,7 @@
 import Foundation
 
 enum MediaFetcher {
-    /// 拉取一个加密字节段（对齐 上游 RemoteVideo.range）。
-    /// 用 NSURLSession 同步段请求，返回原始字节与内容总长。
+    /// 拉取一个加密字节段，返回原始字节与内容总长。
     struct RangeResult {
         let bytes: [UInt8]
         let total: Int64
@@ -160,9 +159,7 @@ enum MediaFetcher {
         }
     }
 
-    /// 设计目标（调试）：把解密后的 MP4 头 + 开头一小段解密媒体数据拼成文件，存到日志文件夹，
-    /// 供用 ffprobe/MediaInfo 查看真实编码、分辨率与容器信息（不承诺可完整播放）。
-    /// 调用处已在主取流路径上被注释（避免写入卡顿），保留函数本体以便需要时一键启用。
+    /// 死代码（调试用）：把解密后的 MP4 头 + 开头一段解密媒体写入日志文件夹，供 ffprobe 查看真实编码。主取流路径已注释调用，保留以备需要时启用。
     private static func saveDecryptedSampleForInspection(url: String, key: [UInt8]?, session: URLSession, prepared: MediaCrypto.Prepared, total: Int64) async {
         do {
             let header = prepared.header

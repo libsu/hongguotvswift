@@ -181,7 +181,7 @@ final class Signer {
         for i in 0..<chosen[0] {
             let base = Int(ivV1 &+ Int32(i))
             let n1 = ((d[chosen[3]] ^ d[chosen[4]]) & d[chosen[1]]) ^ d[chosen[3]]
-            let rol26 = ror32(d[chosen[1]], -26) // rol(x,26) == ror(x, -26)
+            let rol26 = ror32(d[chosen[1]], -26) // 左移 26 位 = 右移 -26
             let rol21 = ror32(d[chosen[1]], -21)
             let rol7 = ror32(d[chosen[1]], -7)
             let n2 = rol26 ^ rol21 ^ rol7

@@ -60,8 +60,13 @@ final class TimedComments {
     }
 
     static func parse(result: [String: Any], series: String, episode: String, start: Int64, duration: Int64) throws -> [String: Any] {
-        guard let code = result["code"] as? NSNumber, code.intValue == 0 else { throw ContentError("弹幕接口未返回成功数据") }
-        guard let data = result.obj("data") else { throw ContentError("弹幕接口未返回成功数据") }
+        // 服务端信封为 PascalCase（Code/Message/Data）；兼容旧的小写键。
+        let code = result.optInt("Code", result.optInt("code", -1))
+        guard code == 0 else {
+            let msg = result.str("Message", result.str("message"))
+            throw ContentError(msg.isEmpty ? "弹幕接口未返回成功数据" : "弹幕接口返回错误：\(msg)（错误码 \(code)）")
+        }
+        guard let data = result.obj("Data") ?? result.obj("data") else { throw ContentError("弹幕接口未返回成功数据") }
         guard let extra = data.obj("extra") else { throw ContentError("弹幕接口未返回成功数据") }
         let next = extra.optLong("next_query_danmaku_list_time")
         guard next > start && next <= 86400000 else { throw ContentError("弹幕时间段无效") }

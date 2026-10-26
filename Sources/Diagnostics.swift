@@ -115,8 +115,7 @@ final class Log {
         queue.sync { try? file?.synchronize() }
     }
 
-    /// 设计目标：关闭日志文件句柄（释放资源）。
-    /// 应用 shutdown 目前走 backend.accountClose() 等，日志器 close 从未被调；保留以备优雅退出时刷新并关闭日志。
+    /// 死代码：关闭日志句柄，shutdown 未调用。
     func close() {
         queue.sync { try? file?.close(); file = nil }
     }
@@ -139,8 +138,7 @@ final class Log {
     }
 }
 
-/// 设计目标：便捷 top-level 函数，供各处直接调用（等价 Log.shared.debug/info/warn/error）。
-/// 当前各处统一直接用 Log.shared.<level>，这四个包装未使用；保留以提供更短的调用入口。
+/// 死代码：log<Level> 便捷包装，当前各处直接用 Log.shared。<level>。
 func logDebug(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line) { Log.shared.debug(message(), file: file, line: line) }
 func logInfo(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line) { Log.shared.info(message(), file: file, line: line) }
 func logWarn(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line) { Log.shared.warn(message(), file: file, line: line) }

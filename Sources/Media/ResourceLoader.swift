@@ -25,13 +25,13 @@ enum MediaScheme {
 /// 一个播放会话的资源加载委托，负责：预取头部 → 解析加密索引 → 按需取流 + 逐段解密。
 /// 生命周期与单个 AVPlayerItem 绑定；切集/切清晰度时由 Model 作废旧会话。
 final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
-    /// 单个加密渲染流的取流信息（对齐 上游 StreamInfo）。
+    /// 单个加密渲染流的取流信息。
     struct Stream {
         let url: String
         let key: [UInt8]?
     }
 
-    /// 播放流的取流信息 + 实际清晰度（用于 Model.play 构造会话）。
+    /// 取流信息 + 实际清晰度。
     struct StreamAndQuality {
         let url: String
         let key: [UInt8]?

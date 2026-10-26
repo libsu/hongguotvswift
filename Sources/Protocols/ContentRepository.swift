@@ -277,16 +277,60 @@ final class ContentRepository {
     func streamLadder(id: String) async throws -> StreamLadder {
         guard isValidNumericId(id) else { throw ContentError("剧集 id 异常") }
         let payload = "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":3,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"\(id)\"]}}"
-        var device = playerDevice
-        device["_rticket"] = String(clock())
-        let query = Signer.encode(device)
-        let playerUrl = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/?\(query)"
-        let request = Signer.Request(url: playerUrl, headers: [
-            "User-Agent": "com.phoenix.read/71532 (Linux; U; Android 9; SM-N9860; Build/PQ3A.190705.10241111;tt-ok/3.12.13.20)",
-            "Accept": "application/json; charset=utf-8,application/x-protobuf"
-        ], body: Array(payload.utf8))
-        let response = try await text(request.url, signed: request, retryTransient: false)
-        guard !response.isEmpty else { throw ContentError("播放接口返回空响应，请稍后重试或更新应用") }
+        // 等价上游域名轮换：取流主请求上游偶发对单域名返回「HTTP 200 但 body 为空」或短暂不可用，
+        // 属于软失败。该错误不进入 text() 的 transient 重试（空响应不抛、ContentError 默认 statusCode=0），
+        // 故在此先跨等价域名切换、再对单域名做有限软失败重试（共 3 次尝试），并在失败时打印 host/状态码/字节数，便于定位。
+        let streamHosts = [
+            "api5-normal-sinfonlinea.fqnovel.com",
+            "api3-normal-sinfonlinea.fqnovel.com",
+            "api5-normal-sinfonlineb.fqnovel.com",
+            "api5-normal-sinfonlinec.fqnovel.com",
+        ]
+        var response = ""
+        var lastError: Error? = nil
+        for host in streamHosts {
+            var device = playerDevice
+            device["_rticket"] = String(clock())
+            let query = Signer.encode(device)
+            let playerUrl = "https://\(host)/novel/player/multi_video_model/v1/?\(query)"
+            let request = Signer.Request(url: playerUrl, headers: [
+                "User-Agent": "com.phoenix.read/71532 (Linux; U; Android 9; SM-N9860; Build/PQ3A.190705.10241111;tt-ok/3.12.13.20)",
+                "Accept": "application/json; charset=utf-8,application/x-protobuf"
+            ], body: Array(payload.utf8))
+
+            var headers = ["User-Agent": VendorConstants.VIDEO_UA, "Accept-Language": "zh-CN,zh;q=0.9"]
+            for (k, v) in request.headers { headers[k] = v }
+            var body: Data? = nil
+            if let b = request.body { body = Data(b) }
+
+            for attempt in 1...3 {
+                do {
+                    let resp = try await http.request(request.url, method: "POST", headers: headers, body: body)
+                    let raw = String(data: resp.data, encoding: .utf8) ?? ""
+                    let status = resp.statusCode
+                    let hostName = URL(string: request.url)?.host ?? ""
+                    let path = URL(string: request.url)?.path ?? ""
+                    Log.shared.info("streamLadder 取流响应 host=\(hostName) attempt=\(attempt) path=\(path) status=\(status) bytes=\(resp.data.count)")
+                    if raw.isEmpty {
+                        // 空响应可能对应 2xx（正常状态码但 body 为空）：显式标记为可重试的软失败。
+                        throw ContentError("播放接口返回空响应", statusCode: status, retryable: true)
+                    }
+                    response = raw
+                    lastError = nil
+                    break
+                } catch {
+                    if Task.isCancelled { throw error }
+                    lastError = error
+                    Log.shared.warn("streamLadder 取流失败 host=\(host)（第 \(attempt) 次）：\(error.localizedDescription)")
+                    if attempt < 3 {
+                        try await Task.sleep(nanoseconds: UInt64(700_000_000 * attempt))
+                        try Task.checkCancellation()
+                    }
+                }
+            }
+            if !response.isEmpty { break }
+        }
+        if response.isEmpty { throw lastError ?? ContentError("播放接口返回空响应") }
         let data = try parseJSON(response)
         let code = data.optInt("Code", data.optInt("code", 0))
         guard code == 0 else { throw ContentError("播放接口暂不可用（错误码 \(code)）") }
