@@ -46,11 +46,13 @@ struct MacManifest: Decodable {
         didSet { UserDefaults.standard.set(autoCheck, forKey: "autoCheckUpdates") }
     }
     private var didAutoCheck = false
-    private let base = "https://gitcode.com/tsukiyo-zero/hongguoTV/releases/download/mac-stable/"
+    private let base = "https://cdn.gh-proxy.org/https://github.com/libsu/hongguotvswift/releases/download/arm/"
     private let session = URLSession(configuration: .ephemeral, delegate: AllowedRedirects(), delegateQueue: nil)
     nonisolated private static func accepted(_ url: URL?) -> Bool {
         guard let url else { return false }
-        return url.scheme == "https" && ["gitcode.com", "file-cdn.gitcode.com"].contains(url.host ?? "")
+        // 代理入口 + 回源可能跳转到的 GitHub 资产 CDN 域。
+        return url.scheme == "https"
+            && ["cdn.gh-proxy.org", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "githubusercontent.com"].contains(url.host ?? "")
     }
     private final class AllowedRedirects: NSObject, URLSessionTaskDelegate {
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {

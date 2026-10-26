@@ -30,7 +30,7 @@
 - 收藏与历史：本机片单（收藏、历史）与红果账号片单（账户收藏 / 历史 / 已上线预约 / 待上线预约）分离；收藏按钮按登录态路由到本机或账户。
 - 账户：红果官方扫码登录，登录态存于钥匙串（macOS）/ Keychain（tvOS）。
 - 评论与弹幕：本集评论（下滑连续加载）、整剧剧评、时间轴弹幕（暂停/拖动/倍速同步）。
-- 更新：macOS 检查、下载、校验更新包（`mac-stable` 独立发布，不设 Latest）；tvOS 无自更新。
+- 更新：macOS 检查、下载、校验更新包（`arm` 独立发布，不设 Latest）；tvOS 无自更新。
 
 ## 目录结构
 
@@ -111,7 +111,7 @@ bash scripts/test-mac-local.sh
 
 ## 更新发布
 
-- **macOS**：构建脚本自动生成 `.zip` 与 `mac-update.json`。客户端固定读取 GitCode Release `mac-stable` 的 `mac-update.json`（`Info.plist` 的 `CFBundleIdentifier` 为 `com.hongguotv.mac`，正式发布递增 `CFBundleVersion`；调试期间保持版本号不变、以文件名区分 debug 包）。更新只允许 GitCode 及其官方文件 CDN 的 HTTPS 跳转，校验大小与 SHA256 后保存到下载目录，不自动执行或替换应用。
+- **macOS**：构建脚本自动生成 `.zip` 与 `mac-update.json`。客户端固定通过 `cdn.gh-proxy.org` 代理读取 GitHub Release 的 `arm` tag 下的 `mac-update.json`（`Info.plist` 的 `CFBundleIdentifier` 为 `com.hongguotv.mac`，正式发布递增 `CFBundleVersion`；调试期间保持版本号不变、以文件名区分 debug 包）。更新只允许 gh-proxy 代理及 GitHub 官方资产 CDN 的 HTTPS 跳转，校验大小与 SHA256 后保存到下载目录，不自动执行或替换应用。
 - **tvOS**：无自更新，仅走 App Store / TestFlight 分发。
 
 ## 许可
