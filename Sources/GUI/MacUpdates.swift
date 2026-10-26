@@ -15,7 +15,7 @@ struct MacManifest: Decodable {
     let sha256: String
     let notes: String
     func validate() throws {
-        // 兼容 Apple Silicon (arm64) 与 Intel (x86_64)：清单架构必须匹配本机架构，避免下载错误架构的包。
+        // 兼容 Apple Silicon (arm64) 与 Intel (x86_64)：清单架构须匹配本机架构，避免下载错误架构的包。
         guard schema == 1, bundleID == "com.hongguotvswift.app", build > 0, architecture == Self.localArchitecture,
               minMacOS >= 13, minMacOS <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
               size > 0, size <= 300 * 1024 * 1024,
@@ -71,7 +71,7 @@ struct MacManifest: Decodable {
         Task {
             defer { busy = false }
             do {
-                var request = URLRequest(url: URL(string: base + "mac-update.json")!)
+                var request = URLRequest(url: URL(string: base + "mac-update-" + MacManifest.localArchitecture + ".json")!)
                 request.cachePolicy = .reloadIgnoringLocalCacheData; request.timeoutInterval = 25
                 let (data, response) = try await session.data(for: request)
                 guard (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 65536, Self.accepted(response.url) else { throw URLError(.badServerResponse) }

@@ -4,7 +4,7 @@ import Foundation
 @main struct MacUpdateTests {
     static func main() throws {
         let arch = MacManifest.localArchitecture
-        let valid: [String: Any] = ["schema": 1, "bundleID": "com.hongguotvswift.app", "build": 3, "version": "0.2.0", "architecture": arch, "minMacOS": 13, "fileName": "HongGuo-\(arch)-0.2.0-test.zip", "size": 1024, "sha256": String(repeating: "a", count: 64), "notes": "测试"]
+        let valid: [String: Any] = ["schema": 1, "bundleID": "com.hongguotvswift.app", "build": 3, "version": "0.2.0", "architecture": arch, "minMacOS": 13, "fileName": "HongGuo-\(arch)-0.2.0-build3.zip", "size": 1024, "sha256": String(repeating: "a", count: 64), "notes": "测试"]
         func manifest(_ data: [String: Any]) throws -> MacManifest { try JSONDecoder().decode(MacManifest.self, from: JSONSerialization.data(withJSONObject: data)) }
         try manifest(valid).validate()
         // 无效字段逐一被拒：错误的 bundle id、错误架构、非法文件名、越界大小、非法哈希等。
