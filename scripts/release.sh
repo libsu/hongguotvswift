@@ -108,9 +108,12 @@ cp "$ROOT/THIRD_PARTY.md" "$TV_APP/THIRD_PARTY.md" 2>/dev/null || true
 cp "$ROOT/LICENSE" "$TV_APP/LICENSE" 2>/dev/null || true
 cp "$ROOT/NOTICE.md" "$TV_APP/NOTICE.md" 2>/dev/null || true
 
+# tvOS 无自更新（App Store / TestFlight 分发），zip 仅用于归档/备份。
+ditto -c -k --sequesterRsrc --keepParent "$TV_APP" "$OUT/HongGuoTV-$VERSION-build$TV_BUILD.zip"
+
 echo ""
 echo "release 构建完成："
 echo "  macOS arm64:  $OUT/HongGuo-arm64.app  ($OUT/HongGuo-arm64-$VERSION-build$BUILD.zip)"
 echo "  macOS x86_64: $OUT/HongGuo-x86_64.app ($OUT/HongGuo-x86_64-$VERSION-build$BUILD.zip)"
-echo "  tvOS:         $TV_APP"
+echo "  tvOS:         $TV_APP  ($OUT/HongGuoTV-$VERSION-build$TV_BUILD.zip)"
 echo "  版本 $VERSION (mac build $BUILD, tv build $TV_BUILD)"
