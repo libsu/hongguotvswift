@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// tvOS 根视图、栏目主界面、顶部导航栏，以及各栏目（首页/找剧/榜单/我的/搜索）。
+// tvOS 根视图、栏目主界面、顶部导航栏，以及各栏目（首页/找剧/榜单/我的/搜索）
 // 逻辑层（Model / loadHome / loadCatalog / open / play 等）跨平台复用，
-// 本文件只负责「用 SwiftUI focus 系统承载 Siri Remote 焦点」的展示与交互。
+// 本文件只负责「用 SwiftUI focus 系统承载 Siri Remote 焦点」的展示与交互
 import SwiftUI
 import UIKit
 
@@ -21,11 +21,11 @@ struct TVRootView: View {
 
 // MARK: - 栏目主界面
 
-/// 栏目主界面：顶部导航页签 + 对应内容区。
+/// 栏目主界面：顶部导航页签 + 对应内容区
 struct TVLibraryView: View {
     @ObservedObject var model: Model
 
-    // 顶部页签：首页 / 找剧 / 榜单 / 我的。搜索是导航栏右侧的孤立 TextField，不占页签按钮。
+    // 顶部页签：首页 / 找剧 / 榜单 / 我的 搜索是导航栏右侧的孤立 TextField，不占页签按钮
     private let tabs: [(title: String, icon: String, destination: Destination)] = [
         ("首页", "play.rectangle", .home),
         ("找剧", "square.grid.2x2", .discover),
@@ -45,13 +45,13 @@ struct TVLibraryView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
-        // 菜单键（Siri Remote 的 Menu / 返回）从任意栏目回到首页，符合 tvOS 惯例。
-        // 扫码登录浮层显示期间不抢 Menu，交给浮层内的 cancelLogin 处理。
+        // 菜单键（Siri Remote 的 Menu / 返回）从任意栏目回到首页，符合 tvOS 惯例
+        // 扫码登录浮层显示期间不抢 Menu，交给浮层内的 cancelLogin 处理
         .onExitCommand {
             if model.qrImageData == nil && model.navigation != .home { model.navigate(.home) }
         }
         .task {
-            // 冷启动完成后引导到首页（与 macOS ContentView 的引导一致）。
+            // 冷启动完成后引导到首页（与 macOS ContentView 的引导一致）
             while model.busy && !Task.isCancelled { try? await Task.sleep(nanoseconds: 100_000_000) }
             if !Task.isCancelled && model.rows.isEmpty && model.catalogRows.isEmpty && model.navigation == .search {
                 model.navigate(.home)
@@ -80,7 +80,7 @@ struct TVLibraryView: View {
 
 // MARK: - 顶部导航栏
 
-/// 顶部横向焦点导航栏：四个按钮（首页/找剧/榜单/我的）+ 右侧孤立搜索 TextField。
+/// 顶部横向焦点导航栏：四个按钮（首页/找剧/榜单/我的）+ 右侧孤立搜索 TextField
 struct TVNavBar: View {
     @ObservedObject var model: Model
     let tabs: [(title: String, icon: String, destination: Destination)]
@@ -100,7 +100,7 @@ struct TVNavBar: View {
                 }
                 .focused($focused, equals: tab.title)
             }
-            // 孤立的搜索 TextField：无任何外框，键入完成（确认键）即触发搜索。
+            // 孤立的搜索 TextField：无任何外框，键入完成（确认键）即触发搜索
             TextField("搜索剧名", text: $model.query)
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
@@ -128,7 +128,7 @@ struct TVHomeView: View {
 
     var body: some View {
         TVSectionContainer(canvasHeight: canvasHeight) {
-            // b 筛选区：频道切换 + 换一批 + 开始刷剧。
+            // b 筛选区：频道切换 + 换一批 + 开始刷剧
             HStack(spacing: 16) {
                 TVFilterRow(options: Self.categoryOptions, current: model.homeCategory, focus: $focus) { value in
                     if model.homeCategory != value { model.homeCategory = value; model.loadHome() }
@@ -166,7 +166,7 @@ struct TVHomeView: View {
 
 // MARK: - 找剧
 
-/// 找剧：题材 + 类型筛选，平铺海报网格。
+/// 找剧：题材 + 类型筛选，平铺海报网格
 struct TVCatalogView: View {
     @ObservedObject var model: Model
     let canvasHeight: CGFloat
@@ -178,7 +178,7 @@ struct TVCatalogView: View {
         TVFilterOption(id: "cat:AI", title: "AI 剧", value: "AI"),
     ]
 
-    /// 题材选项：固定「全部」（空值）+ 后端返回的动态题材列表。
+    /// 题材选项：固定「全部」（空值）+ 后端返回的动态题材列表
     private var topicOptions: [TVFilterOption] {
         [TVFilterOption(id: "topic:_all", title: "全部", value: "")]
             + model.topics.map { TVFilterOption(id: "topic:\($0.id)", title: $0.label, value: $0.id) }
@@ -231,7 +231,7 @@ struct TVCatalogView: View {
 
 // MARK: - 榜单
 
-/// 榜单：热播榜切换 + 排名海报网格。
+/// 榜单：热播榜切换 + 排名海报网格
 struct TVBoardView: View {
     @ObservedObject var model: Model
     let canvasHeight: CGFloat

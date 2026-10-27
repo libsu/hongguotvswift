@@ -6,15 +6,15 @@ struct HomeFeedView: View {
     @ObservedObject var model: Model
     @ObservedObject var library: LocalLibrary
     var body: some View {
-        VStack(spacing: 18) {
-            HStack(spacing: 16) {
-                // 推荐频道选择 + 换一批（合并到左上）。
+        VStack(spacing: Theme.sectionGap) {
+            HStack(spacing: Theme.spacingXL) {
+                // 推荐频道选择 + 换一批（合并到左上）
                 HStack(alignment: .center, spacing: Theme.spacingMD) {
                     CapsuleFilterRow(title: nil, options: [
                         .init(label: "推荐", value: "ALL"),
                         .init(label: "真人剧", value: "REAL"),
                         .init(label: "漫剧", value: "COMIC"),
-                    ], selection: $model.homeCategory, layout: .row) { model.loadHome() }
+                    ], selection: $model.homeCategory, layout: .fixed) { model.loadHome() }
                     Button { model.loadHome() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.plain).help("换一批").disabled(model.busy)
                 }.disabled(model.busy)
                 Spacer()
@@ -23,16 +23,19 @@ struct HomeFeedView: View {
                 Button { model.moveRecommendation(1) } label: { Image(systemName: "chevron.down") }.buttonStyle(.borderless).help("下一部")
             }
             if let detail = model.detail, model.showDetail {
-                HStack(alignment: .top, spacing: 24) {
-                    NativePlayer(player: model.player)
+                HStack(alignment: .top, spacing: Theme.spacingHuge) {
+                    PlayerSurfacePreview(player: model.player)
                         .overlay { DanmakuOverlay(model: model, danmaku: model.danmaku) }
-                        .overlay(alignment: .topTrailing) { PlayerCornerButtons(model: model) }
+                        .overlay(alignment: .topTrailing) {
+                            PlayerCornerButton(model: model, corner: .enterFullscreen, style: .plain)
+                                .buttonStyle(.borderless).padding(10)
+                        }
                         .background(.black).cornerRadius(Theme.cornerLarge)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: Theme.spacingXL) {
                             Text(detail.series.title).font(.title2.bold()).textSelection(.enabled)
-                            HStack(spacing: 10) {
+                            HStack(spacing: Theme.spacingMD) {
                                 Text(detail.series.badge).foregroundStyle(.secondary)
                                 Button { model.toggleFavorite(detail.series) } label: {
                                     Image(systemName: model.favoriteActive(detail.series) ? "star.fill" : "star")
@@ -53,17 +56,15 @@ struct HomeFeedView: View {
                     }.frame(width: 300)
                 }
             } else {
-                VStack(spacing: 18) {
-                    Image(systemName: "play.rectangle").font(.system(size: 52)).foregroundStyle(Color.accentColor)
-                    Text(model.loadingList ? "正在准备试播…" : "看看下一部好故事").font(.title2)
+                EmptyStateView(title: model.loadingList ? "正在准备试播…" : "看看下一部好故事", symbol: "play.rectangle") {
                     Button("开始刷剧") { model.startHomeTrial() }.disabled(model.busy)
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-        }.padding(24)
+        }.padding(Theme.pagePadding)
     }
 }
 
-/// 首页内联的整剧剧评列表（只读、可滚动、占满剩余高度）。
+/// 首页内联的整剧剧评列表（只读、可滚动、占满剩余高度）
 struct InlineReviewsView: View {
     @ObservedObject var model: Model
     var body: some View {
@@ -71,11 +72,11 @@ struct InlineReviewsView: View {
             if model.comments.loading {
                 ProgressView("正在读取评论…").frame(maxWidth: .infinity)
             } else if let error = model.comments.error {
-                VStack(spacing: 10) { Text(error).font(.caption).foregroundStyle(.secondary); Button("重试") { model.loadComments(force: true) } }
+                InlineHint(text: error, retry: { model.loadComments(force: true) })
                     .frame(maxWidth: .infinity)
             } else if let reviews = model.comments.result?.reviews.items, !reviews.isEmpty {
                 ForEach(reviews) { comment in
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Theme.spacingMD) {
                         HStack {
                             Text(comment.author.isEmpty ? "红果用户" : comment.author).font(.subheadline).lineLimit(1)
                             Spacer()
@@ -87,7 +88,7 @@ struct InlineReviewsView: View {
                     }
                 }
             } else {
-                Text("暂无整剧剧评").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                EmptyStateView(title: "暂无整剧剧评", symbol: "text.bubble", size: .compact)
             }
         }
         .task(id: model.commentKey) { model.loadComments() }
@@ -97,38 +98,24 @@ struct InlineReviewsView: View {
 struct MyAccountView: View {
     @ObservedObject var model: Model
     @ObservedObject var library: LocalLibrary
-    @ObservedObject var updates: MacUpdates
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                // 本机收藏：直接平铺卡片，无需进入单独列表页。
-                sectionHeader("收藏")
-                if library.contents.favorites.isEmpty {
-                    Text("暂无收藏").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 12) {
-                            ForEach(library.contents.favorites) { series in seriesCard(series) }
-                        }
+            VStack(alignment: .leading, spacing: Theme.spacingSection) {
+                // 本机收藏与历史直接平铺卡片，无需进入单独列表页
+                PosterSection("收藏", items: library.contents.favorites, emptyHint: "暂无收藏") { series in
+                    SeriesPosterCard(cover: series.cover, title: series.title) { model.open(series) }
+                }
+
+                PosterSection("历史", items: library.contents.history, emptyHint: "暂无观看记录") { record in
+                    SeriesPosterCard(cover: record.series.cover, title: record.series.title, subtitle: record.label) {
+                        model.open(record.series)
                     }
                 }
 
-                // 本机历史：直接平铺卡片。
-                sectionHeader("历史")
-                if library.contents.history.isEmpty {
-                    Text("暂无观看记录").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 12) {
-                            ForEach(library.contents.history) { record in historyCard(record) }
-                        }
-                    }
-                }
-
-                // 2. 账户：标题、用户名、退出登录均靠左（start），登录后四类账号片单直接平铺。
-                HStack(spacing: 12) {
-                    sectionHeader("账户")
+                // 2. 账户：标题、用户名、退出登录均靠左（start），登录后四类账号片单直接平铺
+                HStack(spacing: Theme.spacingLG) {
+                    SectionTitle("账户")
                     if model.account?.loggedIn == true {
                         Text(model.account?.nickname ?? "红果用户").font(.headline).foregroundStyle(.secondary).lineLimit(1)
                         Button("登出") { model.logout() }.disabled(model.accountBusy)
@@ -137,100 +124,96 @@ struct MyAccountView: View {
                 }
                 if model.account?.loggedIn == true {
                     if model.cloudAllLoading && model.cloudAllError == nil && model.cloudFavorites.isEmpty && model.cloudHistory.isEmpty && model.cloudOnline.isEmpty && model.cloudUpcoming.isEmpty {
-                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("正在读取账号片单…").font(.caption).foregroundStyle(.secondary) }
+                        InlineHint(text: "正在读取账号片单…", isLoading: true)
                     } else {
-                        accountSection("账户收藏", entries: model.cloudFavorites, style: .favorite, empty: "账号暂无收藏")
-                        accountSection("账户历史", entries: model.cloudHistory, style: .history, empty: "账号暂无观看记录")
-                        accountSection("已上线预约", entries: model.cloudOnline, style: .reservation, empty: "暂无已上线预约")
-                        accountSection("待上线预约", entries: model.cloudUpcoming, style: .reservation, empty: "暂无待上线预约")
+                        cloudSection("账户收藏", entries: model.cloudFavorites, style: .favorite, empty: "账号暂无收藏")
+                        cloudSection("账户历史", entries: model.cloudHistory, style: .history, empty: "账号暂无观看记录")
+                        cloudSection("已上线预约", entries: model.cloudOnline, style: .reservation, empty: "暂无已上线预约")
+                        cloudSection("待上线预约", entries: model.cloudUpcoming, style: .reservation, empty: "暂无待上线预约")
                         if let error = model.cloudAllError {
-                            HStack(spacing: 8) {
-                                Text(error).font(.caption).foregroundStyle(.secondary)
-                                Button("重试") { model.loadAllCloud() }.disabled(model.cloudAllLoading)
-                            }
+                            InlineHint(text: error, retry: { model.loadAllCloud() }, disabled: model.cloudAllLoading)
                         }
                     }
                 } else {
-                    HStack(alignment: .center, spacing: 24) {
+                    HStack(alignment: .center, spacing: Theme.spacingHuge) {
                         AccountPanel(model: model)
                         Spacer()
                     }
                 }
 
                 // 3. 设置
-                sectionHeader("设置")
-                VStack(alignment: .leading, spacing: 16) {
+                SectionTitle("设置")
+                VStack(alignment: .leading, spacing: Theme.spacingXL) {
                     Toggle("连播", isOn: $model.autoNext)
+                        .settingsToggle()
                     Toggle("首页直接播放", isOn: $model.homeAutoPlay)
-                        .help("开启后进入首页加载完成即自动播放，不再等待「开始刷剧」确认。")
+                        .settingsToggle()
+                        .help("开启后进入首页加载完成即自动播放")
                     Toggle("自动清晰度", isOn: Binding(get: { model.quality == 0 }, set: { auto in model.setQualityPreference(auto ? 0 : 1080) }))
-                        .help("开启后自动选择源提供的最高可用清晰度。")
-                    Toggle("自动检查更新", isOn: $updates.autoCheck)
-                        .help("开启后启动时自动检查更新。")
-                    // 「检查更新」手动按钮入口已停用：更新独立发布，界面不再暴露手动检查入口。
-                    // MacUpdates.check/download 逻辑保留，供自动检查与未来重新开放使用。
-                    // Button("检查 Mac 更新") { updates.check() }.disabled(updates.busy)
-                    Text(updates.status).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    if updates.available != nil { Button("下载并校验更新包") { updates.download() }.disabled(updates.busy) }
-                    if updates.busy { ProgressView().controlSize(.small) }
+                        .settingsToggle()
+                        .help("开启后自动选择源提供的最高可用清晰度 ")
+                    Toggle("自动检查更新", isOn: Binding(get: { model.updates.autoCheck }, set: { model.updates.autoCheck = $0 }))
+                        .settingsToggle()
+                        .help("开启后启动时自动检查更新 ")
+                    // 发现新版本时只提示并跳转发布页：本 App 不下载、不自替换（发布包未签名/公证，自更新不可靠）
+                    if let update = model.updates.available {
+                        HStack(spacing: Theme.spacingMD) {
+                            Text("发现新版本 \(update.version)").font(.caption).foregroundStyle(.secondary)
+                            Button("前往发布页下载") {
+                                NSWorkspace.shared.open(MacUpdates.releasePageURL)
+                            }
+                        }
+                    } else if model.updates.busy {
+                        ProgressView().controlSize(.small)
+                    }
                 }
 
                 Text("HongGuo · \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "测试版")")
                     .font(.caption).foregroundStyle(.secondary)
-            }.padding(32).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(Theme.spacingSection).frame(maxWidth: .infinity, alignment: .leading)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title).font(.title2.bold())
-    }
-
-    private func seriesCard(_ series: Series) -> some View {
-        SeriesPosterCard(cover: series.cover, title: series.title) { model.open(series) }
-    }
-
-    private func historyCard(_ record: WatchRecord) -> some View {
-        SeriesPosterCard(cover: record.series.cover, title: record.series.title, subtitle: record.label) {
-            model.open(record.series)
-        }
     }
 
     // MARK: - 账户四类片单
 
-    private enum AccountSectionStyle { case favorite, history, reservation }
+    /// 账户片单的类别：决定副标题文案与点击行为（收藏直接播放、历史续播、预约区分上线状态）
+    private enum AccountSectionStyle {
+        case favorite, history, reservation
 
-    @ViewBuilder
-    private func accountSection(_ title: String, entries: [CloudEntry], style: AccountSectionStyle, empty: String) -> some View {
-        Text(title).font(.title3.bold())
-        if entries.isEmpty {
-            Text(empty).font(.caption).foregroundStyle(.secondary)
-        } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    ForEach(entries) { entry in cloudCard(entry, style: style) }
-                }
+        func subtitle(_ entry: CloudEntry) -> String? {
+            switch self {
+            case .favorite:
+                return nil
+            case .history:
+                let ep = (entry.episodeIndex ?? 0) + 1
+                let pos = max(0, Int(entry.position ?? 0))
+                return "第 \(ep) 集 · \(String(format: "%02d:%02d", pos / 60, pos % 60))"
+            case .reservation:
+                return entry.online == false ? "待上线" : ((entry.publishText ?? "").isEmpty ? "已上线" : entry.publishText)
+            }
+        }
+
+        @MainActor
+        func open(_ entry: CloudEntry, in model: Model) {
+            switch self {
+            case .favorite:
+                model.open(entry.series)
+            case .history:
+                model.open(entry.series, resumeEpisodeID: entry.episodeID, resumePosition: entry.position)
+            case .reservation where entry.online == false:
+                model.message = "该剧待上线，暂时无法播放"
+            case .reservation:
+                model.open(entry.series)
             }
         }
     }
 
-    private func cloudCard(_ entry: CloudEntry, style: AccountSectionStyle) -> some View {
-        SeriesPosterCard(cover: entry.series.cover, title: entry.series.title, subtitle: cloudSubtitle(entry, style: style)) {
-            if style == .reservation && entry.online == false { model.message = "该剧待上线，暂时无法播放" }
-            else if style == .history { model.open(entry.series, resumeEpisodeID: entry.episodeID, resumePosition: entry.position) }
-            else { model.open(entry.series) }
-        }
-    }
-
-    private func cloudSubtitle(_ entry: CloudEntry, style: AccountSectionStyle) -> String? {
-        switch style {
-        case .favorite:
-            return nil
-        case .history:
-            let ep = (entry.episodeIndex ?? 0) + 1
-            let pos = max(0, Int(entry.position ?? 0))
-            return "第 \(ep) 集 · \(String(format: "%02d:%02d", pos / 60, pos % 60))"
-        case .reservation:
-            return entry.online == false ? "待上线" : ((entry.publishText ?? "").isEmpty ? "已上线" : entry.publishText)
+    /// 带小标题的账户片单：文案与点击行为都由 `style` 自己决定
+    private func cloudSection(_ title: String, entries: [CloudEntry], style: AccountSectionStyle, empty: String) -> some View {
+        PosterSection(title, items: entries, level: .subsection, emptyHint: empty) { entry in
+            SeriesPosterCard(cover: entry.series.cover, title: entry.series.title, subtitle: style.subtitle(entry)) {
+                style.open(entry, in: model)
+            }
         }
     }
 }

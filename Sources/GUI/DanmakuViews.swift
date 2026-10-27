@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
+// macOS 弹幕渲染与开关：逐帧 Canvas 绘制 + 追帧对齐 + 控制栏开关
+// 仅 macOS 播放界面使用（首页预览、普通窗口、全屏），逻辑层见共享的 Danmaku.swift
 import SwiftUI
 
 struct DanmakuOverlay: View {
     @ObservedObject var model: Model
-    @ObservedObject var danmaku: MacDanmaku
+    @ObservedObject var danmaku: DanmakuStore
     @State private var anchorMedia = 0.0
     @State private var anchorHost = CACurrentMediaTime()
     @State private var anchorRate = 0.0
@@ -17,7 +19,7 @@ struct DanmakuOverlay: View {
                     let white = context.resolve(text.foregroundColor(.white))
                     let black = context.resolve(text.foregroundColor(.black))
                     let width = white.measure(in: CGSize(width: CGFloat.infinity, height: CGFloat.infinity)).width
-                    let fraction = min(1, max(0, (time * 1000 - Double(row.item.timeMS)) / Double(MacDanmaku.travelMS)))
+                    let fraction = min(1, max(0, (time * 1000 - Double(row.item.timeMS)) / Double(DanmakuStore.travelMS)))
                     let origin = CGPoint(x: size.width - (size.width + width) * fraction,
                                          y: 62 + Double(row.lane) * 36)
                     // A solid outline remains sharp over bright video without a blur filter.
@@ -44,15 +46,5 @@ struct DanmakuOverlay: View {
                     do { try await Task.sleep(nanoseconds: 250_000_000) } catch { break }
                 }
             }
-    }
-}
-
-struct DanmakuControl: View {
-    @ObservedObject var danmaku: MacDanmaku
-    var body: some View {
-        HStack(spacing: 8) {
-            Toggle("弹幕", isOn: $danmaku.enabled).toggleStyle(.switch).controlSize(.small)
-            // 重试按钮隐藏：失败时自动退避重试，避免在控制栏占用空间。
-        }.help("按视频时间同步的真实弹幕；暂停、拖动和倍速同步")
     }
 }

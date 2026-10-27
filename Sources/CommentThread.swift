@@ -10,7 +10,7 @@ struct AppCommentPage: Decodable {
     let nextCursor: String
     let hasMore: Bool
 }
-@MainActor final class MacCommentThread: ObservableObject {
+@MainActor final class CommentThreadStore: ObservableObject {
     @Published private(set) var items: [PublicComment] = []
     @Published private(set) var total = 0
     @Published private(set) var loading = false

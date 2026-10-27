@@ -7,7 +7,7 @@ import Foundation
             let value: [String:Any] = ["seriesID":series,"episodeID":episode,"rating":9.1,"ratingCount":42,"sourceURL":"https://hongguoduanju.com/player/123456/234567","limited":true,"reviews":["total":100,"items":[]],"comments":["total":12,"items":[["id":"id","author":"测试作者","avatar":"","content":"真实公开评论","created":1700000000,"likes":2,"rating":0]]]]
             return try JSONDecoder().decode(PublicSocial.self, from: JSONSerialization.data(withJSONObject:value))
         }
-        let store = MacComments { series,episode in
+        let store = CommentsStore { series,episode in
             if episode == "slow" { try? await Task.sleep(nanoseconds: 180_000_000) }
             if episode == "error" { throw URLError(.timedOut) }
             if episode == "wrong" { return try result(series,"other") }

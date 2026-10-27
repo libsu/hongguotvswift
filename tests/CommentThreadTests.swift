@@ -5,7 +5,7 @@ import Foundation
     @MainActor static func main() async throws {
         func row(_ id: String) -> PublicComment { PublicComment(id: id, author: "作者", avatar: "", content: "普通评论", created: 1700000000, likes: 1, rating: 0) }
         var calls: [(String, String)] = [], failNext = false, failFirst = false
-        let store = MacCommentThread { series, episode, cursor in
+        let store = CommentThreadStore { series, episode, cursor in
             calls.append((episode, cursor))
             if cursor.isEmpty, failFirst { failFirst = false; throw URLError(.timedOut) }
             if episode == "slow" { try? await Task.sleep(nanoseconds: 180_000_000) }

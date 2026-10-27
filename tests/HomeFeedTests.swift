@@ -37,7 +37,13 @@ final class FeedFixture: URLProtocol {
             fatalError("Feed operation timed out")
         }
         try await wait { !model.busy }
-        model.navigate(.home)
+        // 首页加载是 fire-and-forget 且 `loadHome` 在 busy 时会直接返回：
+        // 循环重发直到真正开始加载（首次就成功时不会有多余请求）
+        for _ in 0..<300 {
+            model.navigate(.home)
+            try await Task.sleep(nanoseconds: 10_000_000)
+            if model.episode == 0 && model.homeWarmDetail != nil { break }
+        }
         try await wait { !model.busy && model.episode == 0 && model.homeWarmDetail != nil }
         assert(model.preview && model.catalogRows.count == 2 && model.detail?.series.id == "a")
         assert(model.library.contents.history.isEmpty)

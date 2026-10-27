@@ -6,7 +6,7 @@ import Foundation
         func page(_ series: String, _ episode: String, _ start: Int, _ end: Int) -> TimedCommentPage {
             TimedCommentPage(seriesID: series, episodeID: episode, startMS: start, nextMS: min(start + 30000, end), items: [TimedComment(id: "test", text: "时间轴弹幕", timeMS: start + 1000)])
         }
-        let store = MacDanmaku { series, episode, start, end in
+        let store = DanmakuStore { series, episode, start, end in
             if episode == "slow" { try? await Task.sleep(nanoseconds: 180_000_000) }
             if episode == "error" { throw URLError(.timedOut) }
             return page(series, episode == "wrong" ? "other" : episode, start, end)

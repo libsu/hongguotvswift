@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// UI 侧已有 Codable 的 Series/Topic/MacRank 等；此文件类型仅服务取数层，结果再映射回 UI 模型。
+// UI 侧已有 Codable 的 Series/Topic/RankPosition 等；此文件类型仅服务取数层，结果再映射回 UI 模型。
 import Foundation
 
 

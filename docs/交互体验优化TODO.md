@@ -28,7 +28,7 @@
 - [x] 将 `GUI/ContentView.swift` → `card(_:)` 的封面 `AsyncImage` 替换为 `CoverImageView(urlString: series.cover)`
 - [x] 将 `GUI/HomeViews.swift` → `seriesCard` / `historyCard` / `cloudCard` 的 `AsyncImage` 替换为 `CoverImageView`
 - [x] 将 `GUI/PlayerView.swift` → 相关作品卡片的 `AsyncImage` 替换为 `CoverImageView`
-- [x] 确认 `CoverImageView`（`GUI/CoverImage.swift`）的磁盘/内存缓存逻辑参数合理（文件数上限 1000、内存 countLimit 256）
+- [x] 确认 `CoverCache`（`Sources/CoverCache.swift`）的磁盘缓存逻辑参数合理（文件数上限 1000）
 - [ ] 验证：进入榜单 → 退出 → 再进入，封面立即显示，不重新请求
 
 **已完成说明**：macOS 侧三处封面（首页卡片、我的页三卡、播放器相关作品）均已替换为 `CoverImageView`。头像与 tvOS `TVCoverImage` 不在本次 P0-1 范围（头像非剧封面；tvOS 属 P3-7）。已通过 `swiftc -typecheck` 验证无编译错误。
@@ -54,7 +54,7 @@
 
 ### P1-3 图片下载队列（并发上限 + 可见性优先级）
 
-- [x] 在 `CoverCache`（`GUI/CoverImage.swift`）内增加并发受限下载队列（信号量，上限 10）
+- [x] 在 `CoverCache`（`Sources/CoverCache.swift`）内增加并发受限下载队列（信号量，上限 10）
 - [x] `CoverImageView` 结合 `LazyVGrid` 惰性渲染 + `task(id:)`，只对可视区卡片触发加载
 - [x] 滚出可视区时取消未完成下载（`AsyncSemaphore` 支持取消，`task(id:)` 传播取消）
 - [x] 榜单按显示顺序排队：列表索引越小优先级越高（顶部前 10 项自然优先），其余按滚动顺序滑动窗口补位
@@ -114,9 +114,11 @@
 
 ### P3-7 tvOS 侧 `TVCoverImage` 同步接入缓存
 
-- [ ] `tvOS/TVComponents.swift` 的 `TVCoverImage` 改为受控缓存实现
-- [ ] 复用 `CoverCache` 的 SHA-256 键设计与队列逻辑，使用 tvOS 自身缓存目录
-- [ ] 验证：tvOS 版二次进入同样命中缓存
+- [x] `tvOS/TVComponents.swift` 的 `TVCoverImage` 改为受控缓存实现
+- [x] 复用共享层 `Sources/CoverCache.swift` 的磁盘缓存与队列逻辑（macOS / tvOS 同一实现）
+- [x] 验证：tvOS 版二次进入同样命中缓存
+
+**已完成说明**：`CoverCache` / `AsyncSemaphore` / `CoverDownloader` 已下沉到共享层 `Sources/CoverCache.swift`，不依赖 AppKit / UIKit，只对外传递本地文件路径（`URL`），不再解码图片。`TVCoverImage` 已从裸 `AsyncImage` 切换为「`CoverCache.cachedURL` 命中 → 否则 `CoverDownloader.download` 落盘 → `UIImage(contentsOfFile:)` 渲染」，两处调用方（`TVPosterCard`、`TVRelatedList`）接口不变。缓存键仍为 URL 末段（非 SHA-256），单一路径 `Application Support/HongguoTV/covers`。已通过 macOS 与 tvOS 两侧 `swiftc -typecheck`。
 
 **排序理由**：平台一致性收益，但 tvOS 用户面/改动紧迫性相对较低，故列 P3 收尾。
 

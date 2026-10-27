@@ -2,8 +2,8 @@
 import Foundation
 
 struct Topic: Codable, Identifiable { let id: String; let label: String }
-struct MacRank: Codable { let rank: Int?; let heat: String }
-struct CatalogResult: Codable { let items: [Series]; let hasMore: Bool; let topics: [Topic]; let positions: [String: MacRank]? }
+struct RankBadge: Codable { let rank: Int?; let heat: String }
+struct CatalogResult: Codable { let items: [Series]; let hasMore: Bool; let topics: [Topic]; let positions: [String: RankBadge]? }
 struct RelatedEntry: Decodable, Identifiable {
     var id: String { series.id }
     let series: Series

@@ -2,6 +2,7 @@
 // tvOS 通用可复用小组件：筛选/页签胶囊、导航页签按钮、空态、加载态、状态栏。
 // 各栏目（首页/找剧/榜单/我的/搜索）共享，统一焦点视觉与布局语义。
 import SwiftUI
+import UIKit
 
 // MARK: - 通用胶囊按钮（配置化）
 
@@ -151,25 +152,43 @@ struct TVLoadingView: View {
     }
 }
 
-/// 通用封面图：主卡片区（TVPosterCard）与播放器信息页（相关作品）共用的海报封面，
-/// 统一 AsyncImage + placeholder + 裁切 + 圆角写法。尺寸与圆角由调用方指定。
+/// 通用封面图：主卡片区（TVPosterCard）与播放器信息页（相关作品）共用的海报封面。
+/// 拉取/缓存复用共享层的 `CoverCache` + `CoverDownloader`（磁盘缓存、并发限流、同 URL 去重），
+/// 只拿本地路径后由 UIKit 解码显示，避免每次进栏目重新下载。
 struct TVCoverImage: View {
     let url: String
     var width: CGFloat
     var height: CGFloat
     var cornerRadius: CGFloat = 12
+    @State private var localURL: URL?
 
     var body: some View {
-        AsyncImage(url: URL(string: url)) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Rectangle()
-                .fill(Color.gray.opacity(0.18))
-                .overlay(Image(systemName: "film").foregroundStyle(.secondary))
+        Group {
+            if let localURL, let image = UIImage(contentsOfFile: localURL.path) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.18))
+                    .overlay(Image(systemName: "film").foregroundStyle(.secondary))
+            }
         }
         .frame(width: width, height: height)
         .clipped()
         .cornerRadius(cornerRadius)
+        .task(id: url) { await load() }
+    }
+
+    @MainActor
+    private func load() async {
+        guard let remote = URL(string: url) else { return }
+        if let cached = CoverCache.shared.cachedURL(for: url) { localURL = cached; return }
+        do {
+            let local = try await CoverDownloader.shared.download(urlString: url, url: remote)
+            guard !Task.isCancelled else { return }
+            localURL = local
+        } catch {
+            // 封面非关键资源，失败时保留占位图即可
+        }
     }
 }
 

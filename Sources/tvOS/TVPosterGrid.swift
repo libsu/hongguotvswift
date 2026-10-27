@@ -50,7 +50,7 @@ struct TVPosterGrid: View {
 /// 单张海报卡片：封面 + 标题 + 徽标，可选排名/热度角标。宽度按竖版海报宽高比自适应。
 struct TVPosterCard: View {
     let series: Series
-    let rank: MacRank?
+    let rank: RankBadge?
     let focused: Bool
     var coverWidth: CGFloat = 180
     var coverHeight: CGFloat = 240
@@ -93,7 +93,7 @@ struct TVPosterCard: View {
         .accessibilityLabel(series.title)
     }
 
-    private func rankText(_ rank: MacRank) -> String {
+    private func rankText(_ rank: RankBadge) -> String {
         let pos = rank.rank.map { "第 \($0) 名" } ?? ""
         let heat = rank.heat
         return [pos, heat].filter { !$0.isEmpty }.joined(separator: " · ")

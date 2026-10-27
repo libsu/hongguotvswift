@@ -56,6 +56,8 @@ hongguotvswift/
 ```
 
 > 架构约定：`Sources/` 顶层 + `Crypto/ Protocols/ Media/ Account/` 为**纯逻辑层**，只依赖 Foundation / Combine / Security / AVFoundation，跨 macOS 与 tvOS 复用；`Sources/GUI/`（macOS）与 `Sources/tvOS/`（tvOS）为平台前端，各自独立、互不依赖。
+>
+> 各 Swift 文件的职责与相互调用关系见 [`docs/文件功能与交互说明.md`](docs/文件功能与交互说明.md)。
 
 ## 构建与运行
 

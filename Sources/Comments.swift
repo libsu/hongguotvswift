@@ -23,7 +23,7 @@ struct PublicSocial: Decodable {
     let sourceURL: String
     let limited: Bool
 }
-@MainActor final class MacComments: ObservableObject {
+@MainActor final class CommentsStore: ObservableObject {
     @Published var result: PublicSocial?
     @Published var loading = false
     @Published var error: String?

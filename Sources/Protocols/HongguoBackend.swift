@@ -14,7 +14,7 @@ final class HongguoBackend {
     private let timedComments: TimedComments
     private let appCommentPages: AppCommentPages
     private let http: HongguoHTTP
-    private let account: MacAccount
+    private let account: AccountSession
 
     init(session: URLSession? = nil) {
         let http = session.map { HongguoHTTP(session: $0) } ?? HongguoHTTP()
@@ -23,7 +23,7 @@ final class HongguoBackend {
         self.publicComments = PublicComments(http: http)
         self.timedComments = TimedComments(transport: CommentTransport(http: http))
         self.appCommentPages = AppCommentPages(transport: CommentTransport(http: http))
-        self.account = MacAccount(http: http)
+        self.account = AccountSession(http: http)
     }
 
     // MARK: - 各 operation 的实现，返回 JSON 结构

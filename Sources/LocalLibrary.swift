@@ -39,7 +39,7 @@ struct SavedLibrary: Codable {
                 contents = saved
             } catch {
                 writable = false
-                self.error = "本机记录读取失败，已保留原文件；请备份后检查。"
+                self.error = "本机记录读取失败，已保留原文件；请备份后检查 "
             }
         }
     }
@@ -54,7 +54,7 @@ struct SavedLibrary: Codable {
     func toggleFavorite(_ series: Series) {
         setFavorite(series, add: !favorite(series.id))
     }
-    /// 幂等设置收藏状态（add=true 加入，add=false 移除）。用于账号接口不可用时回退。
+    /// 幂等设置收藏状态（add=true 加入，add=false 移除） 用于账号接口不可用时回退
     func setFavorite(_ series: Series, add: Bool) {
         if add {
             if !contents.favorites.contains(where: { $0.id == series.id }) {
@@ -75,6 +75,6 @@ struct SavedLibrary: Codable {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(contents).write(to: file, options: .atomic)
             error = nil
-        } catch { self.error = "本机记录保存失败，请检查磁盘空间。" }
+        } catch { self.error = "本机记录保存失败，请检查磁盘空间 " }
     }
 }

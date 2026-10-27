@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 直译 desktop-mac/backend/.../MacAccount.kt —— 账号会话编排。
-// 凭据只存内存；登录态由 Model 持久化到 macOS 钥匙串（SessionKeychain）。
+// 直译 desktop-mac/backend/.../MacAccount.kt —— 账号会话编排（跨平台共享，原名带 Mac 前缀易误导）。
+// 凭据只存内存；登录态由 Model 持久化到钥匙串（SessionKeychain）。
 import Foundation
 
 @MainActor
-final class MacAccount {
+final class AccountSession {
     private let client: CloudAccountClient
     private var credentials: AccountCredentials?
     private var profile: CloudProfile?

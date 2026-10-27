@@ -3,7 +3,7 @@ import Foundation
 
 // MARK: - 导航与分区状态（去字符串化）
 
-/// 内容分区：决定列表页/详情页展示哪类数据。
+/// 内容分区：决定列表页/详情页展示哪类数据
 enum Section: String, CaseIterable {
     case home = "首页"
     case discover = "找剧"
@@ -18,7 +18,7 @@ enum Section: String, CaseIterable {
     var title: String { rawValue }
 }
 
-/// 账户片单分类：账户历史 / 收藏 / 已上线预约 / 待上线预约。
+/// 账户片单分类：账户历史 / 收藏 / 已上线预约 / 待上线预约
 enum CloudType: String, CaseIterable {
     case history = "账户历史"
     case favorites = "账户收藏"
@@ -27,7 +27,7 @@ enum CloudType: String, CaseIterable {
 
     var title: String { rawValue }
 
-    /// 后端 path 段：history / favorites / reservations。
+    /// 后端 path 段：history / favorites / reservations
     var path: String {
         switch self {
         case .history: return "history"
@@ -36,11 +36,11 @@ enum CloudType: String, CaseIterable {
         }
     }
 
-    /// 仅查询已上线（待上线预约传 false）。
+    /// 仅查询已上线（待上线预约传 false）
     var onlineOnly: Bool { self != .upcoming }
 }
 
-/// 侧栏/顶栏导航目的地：与分区基本对应，但区分「本机收藏/历史」与「账户历史/收藏/预约」等入口。
+/// 侧栏/顶栏导航目的地：与分区基本对应，但区分「本机收藏/历史」与「账户历史/收藏/预约」等入口
 enum Destination: String, CaseIterable {
     case home = "首页"
     case discover = "找剧"
@@ -58,7 +58,7 @@ enum Destination: String, CaseIterable {
 
     var title: String { rawValue }
 
-    /// 该目的地对应的内容分区。
+    /// 该目的地对应的内容分区
     var section: Section {
         switch self {
         case .home: return .home
@@ -73,7 +73,7 @@ enum Destination: String, CaseIterable {
         }
     }
 
-    /// 账户类目的地对应的片单分类；非账户目的地为 nil。
+    /// 账户类目的地对应的片单分类；非账户目的地为 nil
     var cloudType: CloudType? {
         switch self {
         case .accountHistory: return .history
@@ -92,14 +92,14 @@ struct NavigationItem: Identifiable {
     var id: String { title }
 }
 
-/// 左侧主导航（发现类）。「搜索」入口已移除——顶栏搜索框已可直接搜索。
+/// 左侧主导航（发现类） 「搜索」入口已移除——顶栏搜索框已可直接搜索
 let discoveryNavigation = [
     NavigationItem(title: "首页", icon: "play.rectangle", destination: .home),
     NavigationItem(title: "找剧", icon: "square.grid.2x2", destination: .discover),
     NavigationItem(title: "榜单", icon: "chart.bar", destination: .rank),
 ]
 
-/// 「我的」侧栏条目固定放在最下角；未登录显示「登录」，登录后优先显示用户名，无用户名时回退「我的」。
+/// 「我的」侧栏条目固定放在最下角；未登录显示「登录」，登录后优先显示用户名，无用户名时回退「我的」
 extension Model {
     var accountRailTitle: String {
         guard account?.loggedIn == true else { return "登录" }
@@ -115,7 +115,7 @@ extension Model {
         homeGeneration = UUID(); homeWarmTask?.cancel(); homeWarmDetail = nil
         showDetail = false
         detailGeneration = UUID(); detailTask?.cancel()
-        // 切栏目作废当前播放与预加载，释放其索引/预取段占用的内存。
+        // 切栏目作废当前播放与预加载，释放其索引/预取段占用的内存
         activeLoader?.close(); activeLoader = nil
         prewarmLoader?.close(); prewarmLoader = nil; prewarmedEpisode = nil
         navigation = destination == .login ? .mine : destination
@@ -128,7 +128,7 @@ extension Model {
         loadSection()
     }
 
-    /// 取消进行中的请求并复位 busy，允许紧接着发起新栏目的请求。
+    /// 取消进行中的请求并复位 busy，允许紧接着发起新栏目的请求
     private func interruptPendingRequest() {
         action?.cancel()
         busy = false

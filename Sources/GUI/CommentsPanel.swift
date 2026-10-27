@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 
+// 未使用 保留
 struct CommentsPanel: View {
     @ObservedObject var model: Model
-    @ObservedObject var comments: MacComments
-    @ObservedObject var thread: MacCommentThread
+    @ObservedObject var comments: CommentsStore
+    @ObservedObject var thread: CommentThreadStore
     @State private var tab = "本集评论"
     @State private var order = "原顺序"
     @State private var filter = ""
     @State private var copied = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Theme.spacingXL) {
             HStack {
-                Text("评论与剧评").font(.title2.bold())
+                SectionTitle("评论与剧评")
                 Spacer()
                 Button { model.loadComments(force: true) } label: { Image(systemName: "arrow.clockwise") }.help("刷新评论").disabled(loading)
             }
@@ -58,7 +59,7 @@ struct CommentsPanel: View {
                     }
                 }
                 if visible.isEmpty && tab == "本集评论" { continuation }
-                Text(tab == "本集评论" ? "下滑到底部可继续加载。筛选和排序仅作用于已加载内容；发送、回复尚未接入，赞数只读。" : "整剧剧评仅显示官网节选。发送、回复尚未接入，赞数只读。")
+                Text(tab == "本集评论" ? "下滑到底部可继续加载 筛选和排序仅作用于已加载内容；发送、回复尚未接入，赞数只读 " : "整剧剧评仅显示官网节选 发送、回复尚未接入，赞数只读 ")
                     .font(.caption).foregroundStyle(.secondary)
                 if let url = URL(string: comments.result?.sourceURL ?? officialURL), url.scheme == "https", url.host == "hongguoduanju.com" {
                     HStack {

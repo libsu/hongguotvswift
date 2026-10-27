@@ -15,7 +15,7 @@ FAIL=0
 # 每条记录： 名称 | 定义文件（相对 ROOT） | 引用形态正则（需能命中调用点、避开定义行）
 # 用「:: 定义文件 :: 正则」三段表示，调用 bash 逐行解析。
 CANDIDATES=(
-  "MacAccount.snapshot()::Sources/Account/MacAccount.swift::\.snapshot\(\)"
+  "AccountSession.snapshot()::Sources/Account/AccountSession.swift::\.snapshot\(\)"
   "Log.close()::Sources/Diagnostics.swift::Log\.shared\.close\(\)"
   "Log.logDebug/logInfo/logWarn/logError::Sources/Diagnostics.swift::\blog(Debug|Info|Warn|Error)\("
   "Bytes.rol/ror::Sources/Crypto/Bytes.swift::\b(rol|ror)\("

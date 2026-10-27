@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.platformInterface = platform
         _model = StateObject(wrappedValue: model)
         self.platform = platform
-        // Model.init 时 platformInterface 尚未注入，所以此处手动安装平台集成。
+        // Model.init 时 platformInterface 尚未注入，所以此处手动安装平台集成
         platform.installPlatformIntegrations(resourcesURL: Bundle.main.resourceURL, restoreSession: true)
     }
 

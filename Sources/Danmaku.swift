@@ -4,7 +4,7 @@ import Combine
 
 struct TimedComment: Decodable, Identifiable { let id: String; let text: String; let timeMS: Int }
 struct TimedCommentPage: Decodable { let seriesID: String; let episodeID: String; let startMS: Int; let nextMS: Int; let items: [TimedComment] }
-@MainActor final class MacDanmaku: ObservableObject {
+@MainActor final class DanmakuStore: ObservableObject {
     @Published var enabled = UserDefaults.standard.object(forKey: "danmakuEnabled") as? Bool ?? false {
         didSet { UserDefaults.standard.set(enabled, forKey: "danmakuEnabled"); if !enabled { clear() } }
     }

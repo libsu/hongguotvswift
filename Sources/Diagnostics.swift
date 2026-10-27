@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 轻量诊断日志：写文件 + 标准输出，便于测试时排查。
-// 规则：凭据（cookie/sessionid/验证码/手机号）绝不落日志；只记录操作、状态码、耗时与脱敏摘要。
+// 轻量诊断日志：写文件 + 标准输出，便于测试时排查
+// 规则：凭据（cookie/sessionid/验证码/手机号）绝不落日志；只记录操作、状态码、耗时与脱敏摘要
 import Foundation
 
-/// 日志级别。
+/// 日志级别
 enum LogLevel: Int, Comparable {
     case debug = 0, info = 1, warn = 2, error = 3
     static func < (lhs: LogLevel, rhs: LogLevel) -> Bool { lhs.rawValue < rhs.rawValue }
@@ -17,7 +17,7 @@ enum LogLevel: Int, Comparable {
     }
 }
 
-/// 全局诊断日志器。
+/// 全局诊断日志器
 final class Log {
     static let shared = Log()
 
@@ -32,7 +32,7 @@ final class Log {
     private var opened = false
 
     init(level: LogLevel = .info) {
-        // 默认 info；可用 `defaults write com.hongguotvswift.app logLevel debug` 调到 debug（含每次取流分段）。
+        // 默认 info；可用 `defaults write com.hongguotvswift.app logLevel debug` 调到 debug（含每次取流分段）
         if let raw = UserDefaults.standard.string(forKey: "logLevel") {
             switch raw.lowercased() {
             case "debug": self.minimumLevel = .debug
@@ -67,7 +67,7 @@ final class Log {
         let source = (file as NSString).lastPathComponent
         let ts = formatter.string(from: Date())
         let lineText = "\(ts) [\(level.label)] \(source):\(line) \(message)\n"
-        // 脱敏：擦掉疑似 Cookie / sessionid 的值，避免凭据泄漏。
+        // 脱敏：擦掉疑似 Cookie / sessionid 的值，避免凭据泄漏
         let safe = redact(lineText)
         queue.async { [weak self] in
             guard let self else { return }
@@ -108,21 +108,21 @@ final class Log {
         currentSize = 0
     }
 
-    /// 日志文件路径（便于测试时定位）。
+    /// 日志文件路径（便于测试时定位）
     var path: String { fileURL.path }
 
     func flush() {
         queue.sync { try? file?.synchronize() }
     }
 
-    /// 死代码：关闭日志句柄，shutdown 未调用。
+    /// 死代码：关闭日志句柄，shutdown 未调用
     func close() {
         queue.sync { try? file?.close(); file = nil }
     }
 
     // MARK: - 脱敏
 
-    /// 擦除疑似敏感值。保守策略：把形如 `name=value` 的 value 替换为 `***`。
+    /// 擦除疑似敏感值 保守策略：把形如 `name=value` 的 value 替换为 `***`
     private func redact(_ text: String) -> String {
         let sensitiveKeys = ["cookie", "sessionid", "session_id", "passport_csrf_token", "code", "credentials", "mobile"]
         var out = text
@@ -138,7 +138,7 @@ final class Log {
     }
 }
 
-/// 死代码：log<Level> 便捷包装，当前各处直接用 Log.shared。<level>。
+/// 死代码：log<Level> 便捷包装，当前各处直接用 Log.shared <level>
 func logDebug(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line) { Log.shared.debug(message(), file: file, line: line) }
 func logInfo(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line) { Log.shared.info(message(), file: file, line: line) }
 func logWarn(_ message: @autoclosure () -> String, file: String = #file, line: Int = #line) { Log.shared.warn(message(), file: file, line: line) }
