@@ -3,6 +3,20 @@ import Foundation
 import Combine
 import AVFoundation
 
+/// UI 播放进度（秒），独立于 Model 发布。
+/// 播放时 AVPlayer 的回调频率很高，若写回 Model 的 @Published 属性，会让 ContentView/EpisodeView
+/// 这类观察 Model 的大视图树每次都重算 body，是播放时 CPU/能耗偏高的主要原因。
+/// 只有真正显示进度的进度条/时间文本订阅本对象。
+@MainActor final class PlaybackClock: ObservableObject {
+    @Published private(set) var time: Double = 0
+
+    /// 同值更新不发布，暂停/静止时不再触发订阅方重绘。
+    func update(_ seconds: Double) {
+        guard seconds.isFinite, seconds != time else { return }
+        time = seconds
+    }
+}
+
 @MainActor final class Model: ObservableObject {
     @Published var query = ""
     @Published var rows: [Series] = []
@@ -16,7 +30,8 @@ import AVFoundation
     @Published var hasMore = false
     let player = AVPlayer()
     @Published var isPlaying = false
-    @Published var playbackTime: Double = 0
+    /// 播放进度：由 AVPlayer 周期观察者按需更新，独立发布（见 PlaybackClock 注释）。
+    let playbackClock = PlaybackClock()
     @Published var showComments = false
     @Published var playerControlsVisible = true
     /// 鼠标是否正悬停于播放区（非全屏）。自动隐藏需「超时且鼠标不在播放区」同时成立，
@@ -167,12 +182,14 @@ import AVFoundation
                 self?.warmNextIfNearEnd()
             }
         }
-        // UI 进度：使用 AVPlayer 由播放器按媒体时钟节拍回推时间），
-        playbackTimeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1.0 / 30.0, preferredTimescale: 600), queue: .main) { [weak self] time in
+        // UI 进度：控件隐藏时无人显示进度，直接跳过更新；可见时 10Hz 足够（时间文本只到秒）。
+        // 进度写进独立的 playbackClock，避免高频率刷新带动整棵视图树重绘。
+        playbackTimeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] time in
             let seconds = time.seconds
             guard seconds.isFinite else { return }
             Task { @MainActor [weak self] in
-                self?.playbackTime = seconds
+                guard let self, self.playerControlsVisible else { return }
+                self.playbackClock.update(seconds)
             }
         }
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] note in

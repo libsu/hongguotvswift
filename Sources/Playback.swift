@@ -83,7 +83,7 @@ extension Model {
         activeSeries = detail.series; activeEpisodeID = detail.episodes[index]; activeEpisodeIndex = index
         activeTrial = trial; preview = trial
         episode = index; actualQuality = quality
-        playbackTime = position.isFinite ? max(0, position) : 0
+        playbackClock.update(position.isFinite ? max(0, position) : 0)
         if position.isFinite && position > 0 {
             Task { await player.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
         }

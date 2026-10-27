@@ -217,10 +217,11 @@ struct PlayerTapLayer: View {
             .onContinuousHover { phase in
                 switch phase {
                 case .active(_):
-                    model.hoveringPlayer = true
+                    // 鼠标移动会持续回调，只在状态真正变化时写 @Published，避免整树重绘。
+                    if !model.hoveringPlayer { model.hoveringPlayer = true }
                     model.revealPlayerControls()
                 case .ended:
-                    model.hoveringPlayer = false
+                    if model.hoveringPlayer { model.hoveringPlayer = false }
                 }
             }
     }
@@ -258,16 +259,9 @@ struct PlayerBottomBar: View {
                 Button { model.togglePlayback() } label: {
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.title2)
                 }.help(model.isPlaying ? "暂停" : "播放").buttonStyle(.borderless)
-                // 时间 + 进度条由 model.playbackTime（AVPlayer 周期时间观察者）驱动，
+                // 时间 + 进度条由 PlaybackClock（AVPlayer 周期时间观察者）驱动，
                 // 不再在 SwiftUI TimelineView 里自行采样 currentTime，避免跳动。
-                HStack(spacing: 18) {
-                    Text("\(clock(model.playbackTime)) / \(clock(duration))").monospacedDigit().font(.caption).foregroundStyle(.secondary)
-                    Slider(value: Binding(
-                        get: { model.playbackTime.isFinite ? model.playbackTime : 0 },
-                        set: { model.player.seek(to: CMTime(seconds: $0, preferredTimescale: 600)) }
-                    ), in: 0...max(1, duration))
-                    .tint(.white)
-                }
+                PlayerProgress(clock: model.playbackClock, player: model.player)
                 // 选集 + 下一集（正式观看）
                 Button { model.infoPanelOpen.toggle(); model.revealPlayerControls() } label: {
                     Image(systemName: "list.bullet").font(.body)
@@ -344,11 +338,30 @@ struct PlayerBottomBar: View {
     private func speedText(_ value: Float) -> String {
         String(format: "%g×", value)
     }
+}
+
+/// 进度条 + 时间文本。单独订阅 PlaybackClock：进度刷新只重绘这一小块，
+/// 不会带动包含大量按钮的整条控件栏（以及上层视图树）重算。
+private struct PlayerProgress: View {
+    @ObservedObject var clock: PlaybackClock
+    let player: AVPlayer
+
+    var body: some View {
+        HStack(spacing: 18) {
+            Text("\(timeText(clock.time)) / \(timeText(duration))").monospacedDigit().font(.caption).foregroundStyle(.secondary)
+            Slider(value: Binding(
+                get: { clock.time.isFinite ? clock.time : 0 },
+                set: { player.seek(to: CMTime(seconds: $0, preferredTimescale: 600)) }
+            ), in: 0...max(1, duration))
+            .tint(.white)
+        }
+    }
+
     private var duration: Double {
-        let d = model.player.currentItem?.duration.seconds ?? 0
+        let d = player.currentItem?.duration.seconds ?? 0
         return d.isFinite ? max(0, d) : 0
     }
-    private func clock(_ value: Double) -> String {
+    private func timeText(_ value: Double) -> String {
         let seconds = Int(max(0, value))
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }

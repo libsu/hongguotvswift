@@ -97,7 +97,11 @@ extension Model {
     /// 全屏时鼠标移动会持续触发 reveal，因此沿用超时即可。
     /// `keepVisible` 为真时（信息面板开启、鼠标按住拖动等）延后隐藏。
     func revealPlayerControls(keepVisible: Bool = false) {
-        playerControlsVisible = true
+        // 控件从隐藏变可见时先补一次进度：隐藏期间进度条时钟不再更新。
+        if !playerControlsVisible {
+            playerControlsVisible = true
+            playbackClock.update(player.currentTime().seconds)
+        }
         controlsHideTask?.cancel()
         controlsHideTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
