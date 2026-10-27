@@ -32,11 +32,12 @@ import AVFoundation
     @Published var isPlaying = false
     /// 播放进度：由 AVPlayer 周期观察者按需更新，独立发布（见 PlaybackClock 注释）。
     let playbackClock = PlaybackClock()
-    @Published var showComments = false
     @Published var playerControlsVisible = true
     /// 鼠标是否正悬停于播放区（非全屏）。自动隐藏需「超时且鼠标不在播放区」同时成立，
     /// 避免鼠标停在画面上时控件无故消失。
     @Published var hoveringPlayer = false
+        /// 清晰度/倍速 popover 是否展开：展开时锁定控件栏，避免自动隐藏移除弹窗锚点。
+        @Published var playerPopoverOpen = false
     @Published var infoPanelOpen = false
     @Published var pipActive = false
     /// 播放控件自动隐藏定时任务：显示控件后 2.5 秒无操作则淡出。

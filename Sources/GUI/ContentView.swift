@@ -7,6 +7,15 @@ struct ContentView: View {
     @ObservedObject var library: LocalLibrary
     @ObservedObject var updates: MacUpdates
     init(model: Model) { self.model = model; library = model.library; updates = model.updates }
+    // MARK: - 内容区最小尺寸
+    /// 画面最小宽高：720×405。指的是**视频画面本身**，不含底部信息栏，也不含播放器上下控件栏
+    /// （上下控件栏/选集面板都是叠在画面上的覆盖层，见 `PlayerOverlays`）。
+    /// 侧栏宽度不参与这个尺寸。
+    static let detailMinWidth: CGFloat = 720
+    static let detailMinHeight: CGFloat = 355
+    /// 底部信息栏高度。
+    static let statusBarHeight: CGFloat = 40
+
     private var items: [Series] {
         switch model.section {
         case .favorites: return library.contents.favorites
@@ -16,10 +25,10 @@ struct ContentView: View {
         default: return model.rows
         }
     }
+    // 发现区 我的/登录：沉在底部
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
-                // 发现区
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(discoveryNavigation) { item in
                         railItem(item)
@@ -27,7 +36,7 @@ struct ContentView: View {
                 }
                 .padding(.top, 8)
                 Spacer()
-                // 我的/登录：沉在底部（Apple TV 风）
+
                 railItem(NavigationItem(title: model.accountRailTitle, icon: model.accountRailIcon, destination: .mine), tag: .mine, iconSize: 20)
                     .padding(.bottom, 8)
             }
@@ -36,20 +45,23 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 230)
         } detail: {
             VStack(spacing: 0) {
-                if model.section == .home && (model.preview || !model.showDetail) {
-                    HomeFeedView(model: model, library: library)
-                } else if model.showDetail, let detail = model.detail {
-                    EpisodeView(model: model, library: library, detail: detail)
-                } else if model.section == .mine {
-                    MyAccountView(model: model, library: library, updates: updates)
-                } else { libraryView }
+                // 内容区：最小宽度 720；高度下放到各分支自身（播放页高度约束在 `EpisodeView` 的画面层）。
+                Group {
+                    if model.section == .home && (model.preview || !model.showDetail) {
+                        HomeFeedView(model: model, library: library)
+                    } else if model.showDetail, let detail = model.detail {
+                        EpisodeView(model: model, detail: detail)
+                    } else if model.section == .mine {
+                        MyAccountView(model: model, library: library, updates: updates)
+                    } else { libraryView }
+                }.frame(minWidth: Self.detailMinWidth)
                 Divider()
                 HStack(spacing: 10) {
                     if model.loadingList || model.cloudLoading { ProgressView().controlSize(.small) }
                     Text(library.error ?? model.message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     Spacer()
                 }.padding(.horizontal, 20)
-                    .frame(height: 44, alignment: .center)
+                    .frame(height: Self.statusBarHeight, alignment: .center)
             }.navigationTitle(model.showDetail ? (model.detail?.series.title ?? "播放") : model.navigation.title)
                 .toolbar {
                     if model.showDetail {
@@ -62,22 +74,16 @@ struct ContentView: View {
                 }
                 .searchable(text: $model.query, placement: .toolbar, prompt: "搜索全部剧集")
                 .onSubmit(of: .search) { model.search() }
-                .sheet(isPresented: $model.showComments) {
-                    VStack(spacing: 0) {
-                        HStack { Spacer(); Button("关闭") { model.showComments = false } }.padding(12)
-                        CommentsPanel(model: model, comments: model.comments, thread: model.commentThread)
-                    }.frame(width: 540, height: 680)
-                }
-        }.task {
+        }
+        .task {
             while model.busy && !Task.isCancelled { try? await Task.sleep(nanoseconds: 100_000_000) }
             if !Task.isCancelled && model.navigation == .search && model.rows.isEmpty { model.navigate(.home) }
-        }.frame(minWidth: 1000, minHeight: 720)
+        }
     }
     private var libraryView: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    // 顶栏 navigationTitle 已统一显示当前栏目名，内容区不再重复大字标题，只留条数/说明副标题。
                     Text(model.section == .account ? "红果账号片单 · 本机记录独立保留" : "\(items.count) 部剧").font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -88,7 +94,7 @@ struct ContentView: View {
             }
             filters
             if model.section == .account, model.account == nil {
-                emptyState("登录后查看账户片单", symbol: "person.crop.circle", detail: "账户历史、收藏与预约会随登录账号切换。") {
+                emptyState("登录后查看账户片单", symbol: "person.crop.circle", detail: "账户历史、收藏与预约会随登录账号切换 ") {
                     Button("扫码登录") { model.navigate(.mine) }
                 }
             } else if model.section == .account, model.cloudLoading {
@@ -99,14 +105,12 @@ struct ContentView: View {
                     Button("重新读取") { model.loadCloud() }
                 }
             } else if items.isEmpty {
-                emptyState(emptyTitle, symbol: model.section == .search ? "magnifyingglass" : "rectangle.stack", detail: model.section == .search ? "在窗口右上角输入剧名，按回车搜索。" : "可刷新账号片单，或浏览找剧与排行榜。") { EmptyView() }
+                emptyState(emptyTitle, symbol: model.section == .search ? "magnifyingglass" : "rectangle.stack", detail: model.section == .search ? "在窗口右上角输入剧名，按回车搜索 " : "可刷新账号片单，或浏览找剧与排行榜 ") { EmptyView() }
             } else {
                 ScrollView {
-                    // 多列自适应（minimum != maximum，避免 HVGrid 崩溃）；卡片内部固定 158 宽、靠左。
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 230), spacing: 20)], alignment: .leading, spacing: 24) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, series in card(series, index: index) }
-                        // 哨兵必须放在 LazyVGrid 内（惰性渲染）：只有滚到它被实例化时 onAppear 才会触发。
-                        // 若放在 ScrollView 直接子级（非惰性），会在首屏渲染时立即触发、之后滚动到底也不再触发。
+                        // 哨兵必须放在 LazyVGrid 内（惰性渲染）：只有滚到它被实例化时 onAppear 才会触发
                         if [.discover, .recommend].contains(model.section), model.catalogMore {
                             Color.clear.frame(height: 1)
                                 .onAppear { model.loadCatalog(more: true) }
@@ -150,8 +154,7 @@ struct ContentView: View {
         }
     }
 
-    /// 题材选项（含「全部题材」空选项）；过滤掉 label/id 为空的条目，避免渲染空胶囊。
-    /// 返回有序列表：「全部题材」总在首位，其余按 label 字母序（对齐原字典排序）。
+    /// 题材选项
     private var topicOptions: [CapsuleFilterRow.Option] {
         var options: [CapsuleFilterRow.Option] = []
         for t in model.topics {
@@ -165,7 +168,6 @@ struct ContentView: View {
     }
     private func card(_ series: Series, index: Int) -> some View {
         let cloud = model.section == .account ? model.cloudRows.first(where: { $0.id == series.id }) : nil
-        // 组装副标题行，最多两行：第一行「全xx集」（灰，左）+ 历史进度（蓝，右）；第二行榜单名次/热度或待上线文案。
         let progressText: String? = {
             if let cloud, let index = cloud.episodeIndex { return "账号看到第 \(index + 1) 集" }
             if let record = library.history(series.id) { return record.label }
@@ -181,7 +183,7 @@ struct ContentView: View {
         } else if let publish = cloud?.publishText {
             lines.append(.init(text: publish))
         }
-        // 组装右键菜单项。
+        // 组装右键菜单项
         var menu: [SeriesCard.MenuItem] = [
             .init(id: "fav", title: library.favorite(series.id) ? "取消本机收藏" : "加入本机收藏") { library.toggleFavorite(series) }
         ]
@@ -216,7 +218,7 @@ struct ContentView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// 侧栏条目（自绘 Apple TV 风）：图标 + 标题，选中高亮，点击导航。
+    /// 侧栏
     @ViewBuilder
     private func railItem(_ item: NavigationItem, tag: Destination? = nil, iconSize: CGFloat = 16) -> some View {
         let target = tag ?? item.destination
@@ -239,23 +241,21 @@ struct ContentView: View {
 
 struct EpisodeView: View {
     @ObservedObject var model: Model
-    @ObservedObject var library: LocalLibrary
     let detail: Detail
 
     var body: some View {
         ZStack {
             Color.black
-            // 播放器占满，自绘 Apple TV 风控件（非系统浮动控件）。
             ImmersivePlayer(model: model)
                 .overlay { DanmakuOverlay(model: model, danmaku: model.danmaku) }
                 .overlay { PlayerTapLayer(model: model) }
-            // 悬浮覆盖层：右上角全屏入口 + 顶部栏 + 底部栏 + 信息面板（与非全屏一致，由 PlayerOverlays 复用）。
-            PlayerOverlays(model: model, library: library, detail: detail, showsTransport: true, corner: .enterFullscreen)
+                .frame(minHeight: ContentView.detailMinHeight)
+            GeometryReader { _ in
+                PlayerOverlays(model: model, detail: detail, showsTransport: true, corner: .enterFullscreen)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: model.playerControlsVisible)
         .animation(.easeInOut(duration: 0.25), value: model.infoPanelOpen)
-        // 仅播放区保持深色（视频画面 + 悬浮控件），不向上影响左侧栏/工具栏/信息栏，
-        // 那些 chrome 跟随系统深浅模式。
         .colorScheme(.dark)
     }
 }

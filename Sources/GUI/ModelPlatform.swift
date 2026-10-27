@@ -14,11 +14,14 @@ final class MacPlatformIntegration: ModelPlatformInterface {
     private var keyMonitor: Any?
     /// 播放守卫：播放中阻止系统休眠 + 30 分钟无操作暂停并提示。
     private var playbackGuard: PlaybackGuard?
+    /// 主窗口下拉按钮用的最小尺寸（`NSWindow.contentMinSize`）。
+    private var windowMinSize: NSSize?
 
     init(model: Model) { self.model = model }
 
     func installPlatformIntegrations(resourcesURL: URL?, restoreSession: Bool) {
         installKeyMonitor()
+        installWindowMinSize()
         if let model {
             playbackGuard = PlaybackGuard(model: model)
             playbackGuard?.start()
@@ -36,6 +39,32 @@ final class MacPlatformIntegration: ModelPlatformInterface {
         playbackGuard?.stop()
         playbackGuard = nil
     }
+
+    /// 安装主窗口最小尺寸（拖拽门槛）：高度 = 画面 405 + 底部信息栏 40（+ 分隔线余量），
+    /// 宽度 = 画面 720 + 侧栏最小宽。播放器的上下控件栏是覆盖层，不占额外高度。
+    /// `NavigationSplitView` 会在布局后按当前列宽重新写 `contentMinSize`，令最小宽变为“当前侧栏宽 + 内容区”，
+    /// 因此这里在主线程观察并在尺寸变化时把它改回上面的取值。
+    private func installWindowMinSize() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = NSApp.windows.first(where: { $0.title == "HongGuo" }) else { return }
+            let size = NSSize(width: ContentView.detailMinWidth + Self.railMinWidth,
+                              height: ContentView.detailMinHeight + ContentView.statusBarHeight)
+            self.windowMinSize = size
+            window.contentMinSize = size
+            // 拖动分隔条会改变列宽，而侧栏最小宽是固定的，因此只需在尺寸变化时校正一次即可。
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification, object: window, queue: .main
+            ) { [weak self, weak window] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let window, let size = self.windowMinSize, window.contentMinSize != size else { return }
+                    window.contentMinSize = size
+                }
+            }
+        }
+    }
+
+    /// 侧栏最小宽度，与 `ContentView` 中 `.navigationSplitViewColumnWidth(min:)` 保持一致。
+    private static let railMinWidth: CGFloat = 180
 
     /// 安装全局键盘监听：空格播放/暂停、方向键快进快退/切换作品，普通窗口与全屏共用。
     /// 排除文本输入焦点（搜索框、评论输入等），避免打字时误触发。
