@@ -11,6 +11,7 @@ extension Model {
         // 命中预加载 item 则直接切换，跳过二次取流；跨剧时校验 seriesID。
         if let pre = prewarmedEpisode, pre.episodeID == episodeID,
            (pre.seriesID == nil || pre.seriesID == detail.series.id) {
+            activeLoader?.close()
             activeLoader = prewarmLoader
             prewarmedEpisode = nil
             prewarmLoader = nil
@@ -63,6 +64,7 @@ extension Model {
         let loader = ResourceLoader(stream: stream, episodeID: episodeID, seed: seed)
         let asset = AVURLAsset(url: MediaScheme.url(episodeID: episodeID), options: nil)
         asset.resourceLoader.setDelegate(loader, queue: loader.delegateQueue)
+        activeLoader?.close()
         activeLoader = loader
         let item = AVPlayerItem(asset: asset)
         startEpisode(item: item, index: index, quality: info.quality, position: position, autoplay: autoplay, trial: trial)

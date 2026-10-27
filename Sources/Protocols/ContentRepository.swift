@@ -8,20 +8,16 @@ final class ContentRepository {
     private let signer: Signer
     private let site = "https://hongguoduanju.com"
     private let clock: () -> Int64
-    private let playerDevice: [String: String]
+    private let playerDevices: PlayerDeviceSource
 
     private var relatedCache: [String: [RelatedWork]] = [:]
     /// 详情页内存缓存：避免反复进入同一剧集时重复请求详情页。
     private var detailCache: [String: (series: Series, episodes: [String])] = [:]
 
-    init(http: HongguoHTTP = HongguoHTTP(), clock: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) {
+    init(http: HongguoHTTP = HongguoHTTP(), clock: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }, defaults: UserDefaults = .standard) {
         self.http = http
         self.clock = clock
-        var device = VendorConstants.device
-        device["iid"] = newPlayerDeviceId()
-        device["device_id"] = newPlayerDeviceId()
-        device["cdid"] = UUID().uuidString
-        self.playerDevice = device
+        self.playerDevices = PlayerDeviceSource(http: http, clock: clock, defaults: defaults)
         self.signer = Signer(clock: clock)
     }
 
@@ -274,126 +270,247 @@ final class ContentRepository {
         return info
     }
 
+    /// 播放设备被上游拒绝（110001/10001/10002）。内部信号：丢弃旧设备并重新注册一次。
+    private struct PlayerDeviceRejected: Error {}
+
     func streamLadder(id: String) async throws -> StreamLadder {
         guard isValidNumericId(id) else { throw ContentError("剧集 id 异常") }
+        var lastError: Error?
+        // 注册设备 + 取流；设备被拒绝时换一台重试一次（对齐上游 fqapp 的设备轮换）。
+        for attempt in 0..<2 {
+            do {
+                return try await registeredStreamLadder(id: id)
+            } catch is PlayerDeviceRejected {
+                await playerDevices.invalidate()
+                lastError = ContentError("播放设备已被上游拒绝")
+                Log.shared.warn("streamLadder 播放设备被拒绝，重新注册（第 \(attempt + 1) 次）")
+                if attempt == 0 { continue }
+            } catch {
+                lastError = error
+                break
+            }
+        }
+        // 兜底：内置旧设备走同一接口，部分环境仍可能可用（当前线上多数返回 110001）。
+        do {
+            return try await fetchLadder(id: id, device: VendorConstants.device)
+        } catch {
+            lastError = lastError ?? error
+        }
+        throw lastError ?? ContentError("播放接口暂不可用，请稍后重试")
+    }
+
+    private func registeredStreamLadder(id: String) async throws -> StreamLadder {
+        let device = try await playerDevices.obtain()
+        var values = VendorConstants.device
+        values["iid"] = device.installId
+        values["device_id"] = device.deviceId
+        values["cdid"] = device.cdid
+        values["openudid"] = device.openudid
+        return try await fetchLadder(id: id, device: values)
+    }
+
+    private func fetchLadder(id: String, device: [String: String]) async throws -> StreamLadder {
         let payload = "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":3,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"\(id)\"]}}"
-        // 等价上游域名轮换：取流主请求上游偶发对单域名返回「HTTP 200 但 body 为空」或短暂不可用，
-        // 属于软失败。该错误不进入 text() 的 transient 重试（空响应不抛、ContentError 默认 statusCode=0），
-        // 故在此先跨等价域名切换、再对单域名做有限软失败重试（共 3 次尝试），并在失败时打印 host/状态码/字节数，便于定位。
+        // 等价域名轮换：上游对单域名偶发「HTTP 200 但 body 为空 / {}」的软失败。优先使用实测最稳定的 b 节点。
         let streamHosts = [
+            "api5-normal-sinfonlineb.fqnovel.com",
             "api5-normal-sinfonlinea.fqnovel.com",
             "api3-normal-sinfonlinea.fqnovel.com",
-            "api5-normal-sinfonlineb.fqnovel.com",
             "api5-normal-sinfonlinec.fqnovel.com",
         ]
-        var response = ""
-        var lastError: Error? = nil
+        var lastError: Error?
         for host in streamHosts {
-            var device = playerDevice
-            device["_rticket"] = String(clock())
-            let query = Signer.encode(device)
-            let playerUrl = "https://\(host)/novel/player/multi_video_model/v1/?\(query)"
-            let request = Signer.Request(url: playerUrl, headers: [
+            var values = device
+            values["_rticket"] = String(clock())
+            let query = Signer.encode(values)
+            let url = "https://\(host)/novel/player/multi_video_model/v1/?\(query)"
+            let headers: [String: String] = [
                 "User-Agent": "com.phoenix.read/71532 (Linux; U; Android 9; SM-N9860; Build/PQ3A.190705.10241111;tt-ok/3.12.13.20)",
-                "Accept": "application/json; charset=utf-8,application/x-protobuf"
-            ], body: Array(payload.utf8))
+                "Accept": "application/json; charset=utf-8,application/x-protobuf",
+            ]
+            do {
+                let resp = try await http.request(url, method: "POST", headers: headers, body: Data(payload.utf8))
+                let raw = String(data: resp.data, encoding: .utf8) ?? ""
+                Log.shared.info("streamLadder 取流响应 host=\(host) path=/novel/player/multi_video_model/v1 status=\(resp.statusCode) bytes=\(resp.data.count)")
+                if raw.isEmpty {
+                    lastError = ContentError("播放接口返回空响应", statusCode: resp.statusCode, retryable: true)
+                    Log.shared.warn("streamLadder 取流失败 host=\(host)：播放接口返回空响应")
+                    continue
+                }
+                let data = try parseJSON(raw)
+                let code = data.optInt("Code", data.optInt("code", 0))
+                if Self.isDeviceRejected(code) {
+                    Log.shared.warn("streamLadder 播放设备被拒绝 host=\(host) code=\(code)")
+                    throw PlayerDeviceRejected()
+                }
+                guard code == 0 else {
+                    lastError = ContentError("播放接口暂不可用（错误码 \(code)）")
+                    Log.shared.warn("streamLadder 取流失败 host=\(host)：错误码 \(code)")
+                    continue
+                }
+                guard let map = data.obj("data"), !map.isEmpty else {
+                    lastError = ContentError("播放信息为空")
+                    Log.shared.warn("streamLadder 取流失败 host=\(host)：播放信息为空")
+                    continue
+                }
+                if let ladder = try await ladder(from: map), !ladder.renditions.isEmpty {
+                    return ladder
+                }
+                lastError = ContentError("没有电视可播放的清晰度，请稍后再试或选择其他剧集")
+            } catch is PlayerDeviceRejected {
+                throw PlayerDeviceRejected()
+            } catch {
+                if Task.isCancelled { throw error }
+                lastError = error
+                Log.shared.warn("streamLadder 取流失败 host=\(host)：\(error.localizedDescription)")
+            }
+        }
+        throw lastError ?? ContentError("播放接口返回空响应")
+    }
 
-            var headers = ["User-Agent": VendorConstants.VIDEO_UA, "Accept-Language": "zh-CN,zh;q=0.9"]
-            for (k, v) in request.headers { headers[k] = v }
-            var body: Data? = nil
-            if let b = request.body { body = Data(b) }
+    private static func isDeviceRejected(_ code: Int) -> Bool {
+        code == 10001 || code == 10002 || code == 110001
+    }
 
-            for attempt in 1...3 {
+    /// 解析响应里的所有 video_model：既支持直接档位（video_list），也兼容 fallback_api 二次请求。
+    private func ladder(from data: [String: Any]) async throws -> StreamLadder? {
+        var models: [[String: Any]] = []
+        if let model = Self.model(from: data) { models.append(model) }
+        for (_, value) in data {
+            guard let entry = value as? [String: Any], let model = Self.model(from: entry) else { continue }
+            models.append(model)
+        }
+        var renditions: [Rendition] = []
+        var seen = Set<String>()
+        for model in models {
+            let seed = Self.lenientBase64(model.str("key_seed"))
+            renditions += Self.renditions(from: model["video_list"], seed: seed, seen: &seen)
+        }
+        // 新接口通常在 video_model.video_list 里直接给出全部档位；只有拿不到直接档位时才走 fallback_api，
+        // 避免为一个可能证书/网络异常的备用域名多等一轮。
+        if renditions.isEmpty {
+            for model in models {
+                let fallback = Self.fallbackApi(model)
+                guard fallback.hasPrefix("https://") else { continue }
                 do {
-                    let resp = try await http.request(request.url, method: "POST", headers: headers, body: body)
-                    let raw = String(data: resp.data, encoding: .utf8) ?? ""
-                    let status = resp.statusCode
-                    let hostName = URL(string: request.url)?.host ?? ""
-                    let path = URL(string: request.url)?.path ?? ""
-                    Log.shared.info("streamLadder 取流响应 host=\(hostName) attempt=\(attempt) path=\(path) status=\(status) bytes=\(resp.data.count)")
-                    if raw.isEmpty {
-                        // 空响应可能对应 2xx（正常状态码但 body 为空）：显式标记为可重试的软失败。
-                        throw ContentError("播放接口返回空响应", statusCode: status, retryable: true)
-                    }
-                    response = raw
-                    lastError = nil
-                    break
+                    let raw = try await text(fallback)
+                    let infoData = try parseJSON(raw)
+                    guard let info = infoData.obj("video_info")?.obj("data") else { continue }
+                    let infoSeed = Self.lenientBase64(info.str("key_seed"))
+                    renditions += Self.renditions(from: info["video_list"], seed: infoSeed, seen: &seen)
                 } catch {
                     if Task.isCancelled { throw error }
-                    lastError = error
-                    Log.shared.warn("streamLadder 取流失败 host=\(host)（第 \(attempt) 次）：\(error.localizedDescription)")
-                    if attempt < 3 {
-                        try await Task.sleep(nanoseconds: UInt64(700_000_000 * attempt))
-                        try Task.checkCancellation()
-                    }
+                    Log.shared.warn("streamLadder fallback 取流失败：\(error.localizedDescription)")
                 }
             }
-            if !response.isEmpty { break }
         }
-        if response.isEmpty { throw lastError ?? ContentError("播放接口返回空响应") }
-        let data = try parseJSON(response)
-        let code = data.optInt("Code", data.optInt("code", 0))
-        guard code == 0 else { throw ContentError("播放接口暂不可用（错误码 \(code)）") }
-        guard let map = data.obj("data"), !map.isEmpty else { throw ContentError("播放信息为空") }
-        let entry: [String: Any]
-        if let e = map.obj(id) { entry = e }
-        else if let first = map.values.compactMap({ $0 as? [String: Any] }).first { entry = first }
-        else { throw ContentError("播放信息为空") }
-        let model = entry.obj("video_model") ?? (try? parseJSON(entry.str("video_model"))) ?? [:]
-        let fallbackRaw = model["fallback_api"]
-        var fallback: String
-        if let d = fallbackRaw as? [String: Any] { fallback = d.str("fallback_api") }
-        else if let a = fallbackRaw as? [[String: Any]] { fallback = a.first?.str("fallback_api") ?? "" }
-        else if let s = fallbackRaw as? String { fallback = (try? parseJSON(s).str("fallback_api")) ?? s }
-        else { fallback = "" }
-        guard fallback.hasPrefix("https://") else { throw ContentError("播放地址格式异常") }
-        let infoRaw = try await text(fallback)
-        let infoData = try parseJSON(infoRaw)
-        guard let videoInfo = infoData.obj("video_info"), let dataObj = videoInfo.obj("data") else {
-            throw ContentError("没有播放资源")
-        }
-        let info = dataObj
-        guard let videoList = info.obj("video_list") else { throw ContentError("没有可用清晰度") }
-        // 过滤掉 bytevc2/bvc2（字节私有的 AV1 变体）：其在 MP4 提取器里可能只暴露音频、无视频轨道，
-        // 且大多数 Mac 无 AV1 视频解码。识别集中在 CodecCapabilities.isAV1，避免漏识别或误判。
-        var rows: [(quality: Int, key: String, o: [String: Any])] = []
-        for (k, v) in videoList {
-            guard let o = v as? [String: Any] else { continue }
-            let mainUrl = o.str("main_url")
-            let codec = o.str("codec_type").lowercased()
-            guard !mainUrl.isEmpty, !CodecCapabilities.isAV1(codec) else { continue }
-            // 首选用 height 数字字段反推清晰度（源的质量描述字段可能为 "normal" 等无意义值）；
-            // 读不到数字时回退到 qualityNumber 解析文本（兼容旧源）。
-            let height = dimension(o, keys: ["vheight", "height"])
-            var quality = Self.qualityFromHeight(height)
-            if quality == 0 {
-                let desc = o.str("quality_desc").isEmpty ? (o.str("height").isEmpty ? (o.str("vheight").isEmpty ? (o.str("quality").isEmpty ? k : o.str("quality")) : o.str("vheight")) : o.str("height")) : o.str("quality_desc")
-                quality = Self.qualityNumber(desc)
-            }
-            // 诊断：打印档位解析结果，便于定位「清晰度解析失败导致自动选择漂移」。
-            Log.shared.info("streamLadder height=\(height.map(String.init) ?? "-") parsed=\(quality) key=\(k)")
-            rows.append((quality, k, o))
-        }
-        rows.sort { $0.quality > $1.quality }
-        let seed = info.str("key_seed")
-        var renditions: [Rendition] = []
-        for (quality, _, o) in rows {
-            var url = cleanUrl(o.str("main_url"))
-            if !seed.isEmpty { url = try MediaCrypto.decryptUrl(url, seed: decode64(seed)) }
-            guard url.hasPrefix("https://") || url.hasPrefix("http://") else { continue }
-            let width = dimension(o, keys: ["vwidth", "width"])
-            let height = dimension(o, keys: ["vheight", "height"])
-            let spadeA = o.str("spade_a")
-            let keyBytes: [UInt8]? = spadeA.isEmpty ? nil : try MediaCrypto.deriveKey(spadeA)
-            renditions.append(Rendition(quality: quality, codec: o.str("codec_type").lowercased(), width: width, height: height, url: url, key: keyBytes))
-        }
-        guard !renditions.isEmpty else { throw ContentError("没有电视可播放的清晰度，请稍后再试或选择其他剧集") }
+        guard !renditions.isEmpty else { return nil }
+        renditions.sort { $0.quality > $1.quality }
         return StreamLadder(renditions: renditions)
     }
 
-    private func dimension(_ o: [String: Any], keys: [String]) -> Int? {
-        for key in keys { let v = o.optInt(key, 0); if v > 0 { return v } }
+    private static func model(from container: [String: Any]) -> [String: Any]? {
+        if let model = container.obj("video_model") { return model }
+        if let raw = container["video_model"] as? String, let model = try? parseJSON(raw) { return model }
+        // 少数响应直接把 video_list 放在顶层。
+        return container["video_list"] == nil ? nil : container
+    }
+
+    private static func fallbackApi(_ model: [String: Any]) -> String {
+        let raw = model["fallback_api"]
+        if let dict = raw as? [String: Any] { return dict.str("fallback_api") }
+        if let rows = raw as? [[String: Any]] { return rows.first?.str("fallback_api") ?? "" }
+        if let value = raw as? String { return (try? parseJSON(value).str("fallback_api")) ?? value }
+        return ""
+    }
+
+    private static func renditions(from raw: Any?, seed: [UInt8]?, seen: inout Set<String>) -> [Rendition] {
+        var out: [Rendition] = []
+        func append(_ row: [String: Any], key: String?) {
+            guard let rendition = rendition(from: row, key: key, seed: seed), !seen.contains(rendition.url) else { return }
+            seen.insert(rendition.url)
+            out.append(rendition)
+        }
+        if let rows = raw as? [String: Any] {
+            for (key, value) in rows { if let row = value as? [String: Any] { append(row, key: key) } }
+        } else if let rows = raw as? [[String: Any]] {
+            for row in rows { append(row, key: nil) }
+        }
+        return out
+    }
+
+    /// 单档解析：兼容旧对象结构（vheight/codec_type/spade_a 在顶层）与新数组结构（视频信息在 video_meta/encrypt_info 内）。
+    private static func rendition(from row: [String: Any], key: String?, seed: [UInt8]?) -> Rendition? {
+        let meta = row.obj("video_meta") ?? [:]
+        let encrypt = row.obj("encrypt_info") ?? [:]
+        let codec = (row.str("codec_type").isEmpty ? meta.str("codec_type") : row.str("codec_type")).lowercased()
+        guard !CodecCapabilities.isAV1(codec) else { return nil }
+
+        var url = row.str("main_url")
+        if url.isEmpty { url = row.str("backup_url_1") }
+        if url.isEmpty { url = row.str("backup_url") }
+        if url.isEmpty { url = row.str("play_url") }
+        guard !url.isEmpty else { return nil }
+
+        // 少数旧源把 URL 整体 base64 编码；解出后再按普通 URL 处理。
+        if !url.hasPrefix("http"), let data = lenientBase64(url), data.count > 4,
+           String(decoding: data.prefix(4), as: UTF8.self) == "http" {
+            url = String(decoding: data, as: UTF8.self)
+        }
+        if let seed, !seed.isEmpty {
+            url = (try? MediaCrypto.decryptUrl(url, seed: seed)) ?? url
+        }
+        url = cleanUrl(url)
+        guard url.hasPrefix("https://") || url.hasPrefix("http://") else { return nil }
+
+        let width = positiveInt(row, meta: meta, keys: ["vwidth", "width"])
+        let height = positiveInt(row, meta: meta, keys: ["vheight", "height"])
+        var quality = qualityFromDimensions(width: width, height: height)
+        if quality == 0 {
+            let desc = row.str("quality_desc").isEmpty
+                ? row.str("quality_type", row.str("quality", row.str("definition", key ?? "")))
+                : row.str("quality_desc")
+            quality = qualityNumber(desc)
+        }
+        let spadeA = row.str("spade_a").isEmpty ? encrypt.str("spade_a") : row.str("spade_a")
+        let keyBytes = spadeA.isEmpty ? nil : try? MediaCrypto.deriveKey(spadeA)
+        return Rendition(
+            quality: quality,
+            codec: codec,
+            width: width,
+            height: height,
+            url: url,
+            key: keyBytes
+        )
+    }
+
+    private static func positiveInt(_ row: [String: Any], meta: [String: Any], keys: [String]) -> Int? {
+        for key in keys {
+            let value = row.optInt(key, 0) > 0 ? row.optInt(key, 0) : meta.optInt(key, 0)
+            if value > 0 { return value }
+        }
         return nil
+    }
+
+    /// 短边命名清晰度（竖屏 360x640 记为 360P）；缺一维时退回单维/高度映射。
+    private static func qualityFromDimensions(width: Int?, height: Int?) -> Int {
+        if let width, let height, width > 0, height > 0 {
+            return qualityNumber(String(min(width, height)))
+        }
+        if let width, width > 0 { return qualityNumber(String(width)) }
+        return qualityFromHeight(height)
+    }
+
+    private static func lenientBase64(_ value: String) -> [UInt8]? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+        guard !trimmed.isEmpty else { return nil }
+        let normalized = trimmed
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padded = normalized.padding(toLength: ((normalized.count + 3) / 4) * 4, withPad: "=", startingAt: 0)
+        return Data(base64Encoded: padded).map { Array($0) }
     }
 
     // MARK: - 解析器（静态）

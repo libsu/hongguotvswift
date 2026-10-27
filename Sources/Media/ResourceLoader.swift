@@ -49,8 +49,8 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     // （如相关作品请求）竞争，导致 AVPlayer 的探测请求被延迟而超时。
     private var prepared: MediaCrypto.Prepared?
     private var total: Int64 = 0
-    /// 预热时预先解析好的索引，避免 play 再次取流。
-    private let seed: MediaFetcher.Prepared?
+    /// 预热时预先解析好的索引，避免 play 再次取流。首次取流拷贝到 prepared 后即置 nil 释放，避免双份持有。
+    private var seed: MediaFetcher.Prepared?
     /// 预取的「开头第一段已解密媒体数据」（起始偏移 + 字节），切集命中时直接回喂。
     private var mediaPrefixStart: Int64?
     private var mediaPrefix: [UInt8] = []
@@ -117,6 +117,8 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         if currentPrepared() == nil {
             if let seed {
                 storePrepared(seed.prepared, total: seed.total)
+                // 索引已拷贝到 prepared，释放 seed 大字段（header/samples/mediaPrefix），避免双份持有。
+                self.seed = nil
             } else {
                 try await prepare()
             }
@@ -233,6 +235,13 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     }
 
     func close() {
-        // 会话关闭后 AVPlayer 会 cancel 仍待处理的 loading request，无需额外清理。
+        // 释放大字段（索引 + 预取段 + seed），切集/关闭时显式清空，避免冗余副本残留。
+        stateLock.lock()
+        prepared = nil
+        total = 0
+        mediaPrefix = []
+        mediaPrefixStart = nil
+        stateLock.unlock()
+        seed = nil
     }
 }

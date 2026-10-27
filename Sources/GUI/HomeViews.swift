@@ -108,7 +108,7 @@ struct MyAccountView: View {
                     Text("暂无收藏").font(.caption).foregroundStyle(.secondary)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        LazyHStack(spacing: 12) {
                             ForEach(library.contents.favorites) { series in seriesCard(series) }
                         }
                     }
@@ -120,7 +120,7 @@ struct MyAccountView: View {
                     Text("暂无观看记录").font(.caption).foregroundStyle(.secondary)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        LazyHStack(spacing: 12) {
                             ForEach(library.contents.history) { record in historyCard(record) }
                         }
                     }
@@ -206,7 +206,7 @@ struct MyAccountView: View {
             Text(empty).font(.caption).foregroundStyle(.secondary)
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                LazyHStack(spacing: 12) {
                     ForEach(entries) { entry in cloudCard(entry, style: style) }
                 }
             }

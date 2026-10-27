@@ -1,9 +1,13 @@
-# Mac 第三方声明
+# 第三方声明
 
-本集评论的协议字段参考 yangbin1322/hongguo-player 公开发行包中的接口线索（https://github.com/yangbin1322/hongguo-player/releases/tag/v1.2.11），以匿名请求核实数据来源和游标推进后独立实现；未纳入该客户端的代码、资源或二进制。
+
+本集评论 参考 yangbin1322/hongguo-player 公开发行包中的接口线索（https://github.com/yangbin1322/hongguo-player/releases/tag/v1.2.11）
 
 弹幕评论签名的通用 Argus / Simon 结构参考并改写自 tr4cex/TikTok-Encryption（MIT）：
-https://github.com/tr4cex/TikTok-Encryption 。Gorgon、Ladon 基于本仓库已有 GPL core Signer 改写。红果请求字段为匿名读取验证的协议参数。未纳入许可证未确认的 guoapp 实现。
+https://github.com/tr4cex/TikTok-Encryption 。
+
+播放接口参考：
+https://github.com/BearQu/hongguoTV/tree/fix/registered-device-playback
 
 MIT License
 

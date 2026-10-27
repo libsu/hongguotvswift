@@ -90,6 +90,8 @@ extension Model {
         // 立即保存并停止旧节目，避免加载详情期间旧节目还在播放。
         saveProgress()
         player.pause(); player.replaceCurrentItem(with: nil)
+        activeLoader?.close(); activeLoader = nil
+        prewarmLoader?.close(); prewarmLoader = nil; prewarmedEpisode = nil
         activeSeries = nil; activeEpisodeID = nil; activeEpisodeIndex = nil
         pendingNext = false
         warmedNearEndKey = nil

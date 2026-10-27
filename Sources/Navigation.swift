@@ -115,6 +115,9 @@ extension Model {
         homeGeneration = UUID(); homeWarmTask?.cancel(); homeWarmDetail = nil
         showDetail = false
         detailGeneration = UUID(); detailTask?.cancel()
+        // 切栏目作废当前播放与预加载，释放其索引/预取段占用的内存。
+        activeLoader?.close(); activeLoader = nil
+        prewarmLoader?.close(); prewarmLoader = nil; prewarmedEpisode = nil
         navigation = destination == .login ? .mine : destination
         section = destination.section
         if let cloudType = destination.cloudType { self.cloudType = cloudType }

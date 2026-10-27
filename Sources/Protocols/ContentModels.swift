@@ -203,10 +203,3 @@ func isValidNumericId(_ id: String, _ min: Int = 1, _ max: Int = 30) -> Bool {
     guard let _ = id.range(of: "^[0-9]{\(min),\(max)}$", options: .regularExpression) else { return false }
     return true
 }
-
-/// 生成纯数字播放设备 id。
-func newPlayerDeviceId() -> String {
-    var s = "3"
-    for _ in 0..<18 { s += String(Int.random(in: 0...9)) }
-    return s
-}

@@ -5,6 +5,8 @@ import Foundation
 
 enum DeviceRegister {
     static let HOST = "https://log5-applog-lf.fqnovel.com"
+    /// log5-applog-lf 偶发指向错误证书的 CDN 边缘节点；snssdk 为同一注册服务的稳定入口。
+    static let STABLE_HOST = "https://log.snssdk.com"
     static let PATH = "/service/2/device_register/"
     static let QUERY = "?tt_data=a&cronet_version=8d40f833_2026-03-03&ttnet_version=4.2.243.31-douyin&use_store_region_cookie=1"
 
@@ -105,6 +107,9 @@ enum DeviceRegister {
     }
 
     static func url() -> String { HOST + PATH + QUERY }
+
+    /// 注册入口按稳定性排序；调用方可逐个尝试。
+    static func urls() -> [String] { [STABLE_HOST + PATH + QUERY, url()] }
 
     /// 解析注册响应。device_id/install_id 为 0 或空返回 nil。
     static func parse(_ body: String, setCookies: [String] = []) -> Registered? {

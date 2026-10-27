@@ -398,7 +398,7 @@ struct PlayerInfoPanel: View {
             if !model.related.isEmpty {
                 Text("相关作品").font(.subheadline).foregroundStyle(.secondary)
                 ScrollView(.horizontal) {
-                    HStack(spacing: 12) {
+                    LazyHStack(spacing: 12) {
                         ForEach(model.related) { work in
                             Button { model.infoPanelOpen = false; if work.upcoming { model.reserve(work) } else { model.open(work.series) } } label: {
                                 VStack(alignment: .leading, spacing: 6) {
