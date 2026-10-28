@@ -19,12 +19,10 @@ CANDIDATES=(
   "Log.close()::Sources/Diagnostics.swift::Log\.shared\.close\(\)"
   "Log.logDebug/logInfo/logWarn/logError::Sources/Diagnostics.swift::\blog(Debug|Info|Warn|Error)\("
   "Bytes.rol/ror::Sources/Crypto/Bytes.swift::\b(rol|ror)\("
-  "PreparedCache.invalidate(episodeID:)::Sources/Media/PreparedCache.swift::\.invalidate\(episodeID:"
   "Rendition.toStreamInfo()::Sources/Protocols/ContentModels.swift::\.toStreamInfo\(\)"
   "DramaCategory.init(fromRoute:)::Sources/Protocols/ContentModels.swift::fromRoute:"
   "RankBoard.loader::Sources/Protocols/ContentModels.swift::(board|boardEnum)\.loader\b"
   "RankBoard.key::Sources/Protocols/ContentModels.swift::(board|boardEnum)\.key\b"
-  "Series.isValidId::Sources/Protocols/ContentModels.swift::\.isValidId\b"
 )
 
 echo "=== 死代码引用检查 ==="

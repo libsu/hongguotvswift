@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // 切集预热缓存：按 episodeID 缓存已解析的加密索引（MediaCrypto.Prepared）与会话配置，
 // 使 play 命中预热时跳过取流/解析延迟（对齐 上游 RemoteVideo 的 warmed 单槽语义，
-// 但改为按 episodeID 精确键控，切集/切清晰度时作废，避免串集）。
+// 但改为按 episodeID+quality 精确键控，切集/切清晰度时靠键隔离与容量淘汰避免串集）。
 import Foundation
 
 /// 一个已完成预热的播放会话缓存项。
@@ -49,13 +49,9 @@ final class PreparedCache {
         }
     }
 
-    /// 切集/作废时清空（避免串集）。
+    /// 整体清空（退出播放时调用）。切集/切清晰度不会串集：条目按 episodeID+quality 键隔离，
+    /// 旧条目既不会被命中，也会被 capacity 的 LRU 淘汰自然挤出。
     func clear() {
         entries.removeAll()
-    }
-
-    /// 死代码：按 episodeID 作废，当前 clear() 已覆盖。
-    func invalidate(episodeID: String) {
-        entries = entries.filter { $0.value.episodeID != episodeID }
     }
 }

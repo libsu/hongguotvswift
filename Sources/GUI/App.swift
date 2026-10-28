@@ -31,8 +31,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 CommandGroup(replacing: .newItem) {}
                 CommandMenu("播放") {
                     Button("播放 / 暂停") { model.togglePlayback() }.disabled(!model.showDetail)
-                    Button("上一部") { model.moveRecommendation(-1) }.disabled(!model.preview)
-                    Button("下一部") { model.moveRecommendation(1) }.disabled(!model.preview)
                     Button("快退 10 秒") { model.skipPlayback(-10) }.disabled(!model.showDetail)
                     Button("快进 10 秒") { model.skipPlayback(10) }.disabled(!model.showDetail)
                 }

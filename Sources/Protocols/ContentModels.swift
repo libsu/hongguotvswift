@@ -194,11 +194,6 @@ struct RelatedWork {
     let upcoming: Bool
 }
 
-extension Series {
-    /// 死代码：全局 isValidNumericId() 已覆盖，此扩展未使用。
-    var isValidId: Bool { id.range(of: "^[0-9]{1,30}$", options: .regularExpression) != nil }
-}
-
 func isValidNumericId(_ id: String, _ min: Int = 1, _ max: Int = 30) -> Bool {
     guard let _ = id.range(of: "^[0-9]{\(min),\(max)}$", options: .regularExpression) else { return false }
     return true

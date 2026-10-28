@@ -29,7 +29,16 @@ cp "$ROOT/THIRD_PARTY.md" "$APP/Contents/Resources/THIRD_PARTY.md"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
 cp "$ROOT/NOTICE.md" "$APP/Contents/Resources/NOTICE.md"
 
-codesign --force --deep --sign - "$APP"
+# 签名身份：优先使用开发者证书（提供稳定的 keychain ACL 身份，避免每次启动弹钥匙串授权）。
+# 未配置证书时回退到 ad-hoc 签名（代价是每次重建 CDHash 变化，见 docs/钥匙串逻辑.md）。
+# 注意：ad-hoc 签名无 TeamID，不能携带 keychain-access-groups 等受限 entitlement，
+# 否则 AMFI 会拒绝加载（Restricted entitlements not validated → launchd spawn failed，App 打不开）。
+if [[ -n "${CODE_SIGN_IDENTITY:-}" ]]; then
+    codesign --force --deep --options runtime --sign "$CODE_SIGN_IDENTITY" \
+        --entitlements "$ROOT/MacKeychain.entitlements" "$APP"
+else
+    codesign --force --deep --sign - "$APP"
+fi
 
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$APP/Contents/Info.plist")
