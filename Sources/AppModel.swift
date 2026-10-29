@@ -256,7 +256,7 @@ import AVFoundation
             Log.shared.debug("request \(path) [\(source)] ok \(Int(Date().timeIntervalSince(started) * 1000))ms")
             return result
         } catch {
-            Log.shared.warn("request \(path) [\(source)] failed \(Int(Date().timeIntervalSince(started) * 1000))ms: \(error.localizedDescription)")
+            Log.shared.warn("request \(path) [\(source)] failed \(Int(Date().timeIntervalSince(started) * 1000))ms: \(Log.describe(error))")
             throw error
         }
     }

@@ -76,6 +76,25 @@ final class Log {
         }
     }
 
+    /// 把错误转成可诊断的文本：localizedDescription 对 DecodingError 只会给
+    /// "The data couldn't be read…"、对 NSError 会丢失 domain/code，日志里难以定位。
+    static func describe(_ error: Error) -> String {
+        if error is CancellationError { return "已取消" }
+        if let decoding = error as? DecodingError { return "\(decoding)" }
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain {
+            // 网络错误补上 URLError.Code 与失败地址，区分超时 / DNS / TLS
+            let reason = "\(URLError(URLError.Code(rawValue: ns.code)).localizedDescription)(\(ns.code))"
+            if let url = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
+                return "\(reason)（\(url.host ?? "?")）"
+            }
+            return reason
+        }
+        // 自定义错误自带可读描述；其余补上 domain/code 便于定位
+        if ns.domain.hasPrefix("Hongguo") { return error.localizedDescription }
+        return "\(error.localizedDescription) [\(ns.domain) \(ns.code)]"
+    }
+
     private func write(_ line: String) {
         guard let file else { return }
         if let data = line.data(using: .utf8) {
@@ -119,8 +138,6 @@ final class Log {
     func close() {
         queue.sync { try? file?.close(); file = nil }
     }
-
-    // MARK: - 脱敏
 
     /// 擦除疑似敏感值 保守策略：把形如 `name=value` 的 value 替换为 `***`
     private func redact(_ text: String) -> String {

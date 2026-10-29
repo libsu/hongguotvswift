@@ -113,7 +113,8 @@ extension Model {
                     let _: Detail = try await self.request("warm", ["id": seriesID, "episode": nextID, "quality": String(selectedQuality)])
                     Log.shared.info("warmNextEpisode \(nextID) 成功（旧桥 /warm）")
                 } catch {
-                    Log.shared.warn("warmNextEpisode \(nextID) 失败：\(error.localizedDescription)")
+                    if Task.isCancelled || error is CancellationError { return }
+                    Log.shared.warn("warmNextEpisode \(nextID) 失败（旧桥 /warm）：\(Log.describe(error))")
                 }
             }
         }
@@ -157,7 +158,10 @@ extension Model {
             let duration: CMTime? = try? await asset.load(.duration)
             let tracks = try? await asset.load(.tracks)
             Log.shared.info("warmNextEpisode \(episodeID) 预加载完成 duration=\(duration?.seconds ?? -1) tracks=\(tracks?.count ?? -1)")
-        } catch { Log.shared.warn("warmNextEpisode \(episodeID) 失败：\(error.localizedDescription)") }
+        } catch {
+            if Task.isCancelled || error is CancellationError { return }
+            Log.shared.warn("warmNextEpisode \(episodeID) 失败：\(Log.describe(error))")
+        }
     }
 
     // MARK: - 进度
