@@ -89,8 +89,21 @@ struct MyAccountView: View {
             SettingsRow(label: "自动清晰度", isOn: Binding(get: { model.quality == 0 }, set: { auto in model.setQualityPreference(auto ? 0 : 1080) }), help: "开启后自动选择源提供的最高可用清晰度")
             SettingsRow(label: "自动检查更新", isOn: Binding(get: { model.updates.autoCheck }, set: { model.updates.autoCheck = $0 }), help: "开启后启动时自动检查更新")
             updateHint
+            cacheRow
         }.frame(width: 200, alignment: .leading)
     }
+
+    private var cacheRow: some View {
+        HStack {
+            Text("清理缓存")
+            Spacer()
+            Button(cacheSizeText) {}
+                .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var cacheSizeText: String { "清理 0 MB 缓存" }
 
     @ViewBuilder
     private var updateHint: some View {
