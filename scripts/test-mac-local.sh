@@ -36,7 +36,7 @@ for source in "$ROOT/Sources/"*.swift "$ROOT/Sources/"Crypto/*.swift "$ROOT/Sour
     if [ "$(basename "$source")" != App.swift ]; then SOURCES+=("$source"); fi
 done
 
-for suite in CloudHistoryTests PlayerControlsTests HomeFeedTests CommentsTests DanmakuTests CommentThreadTests; do
+for suite in CloudHistoryTests PlayerControlsTests HomeFeedTests CommentsTests DanmakuTests CommentThreadTests SeriesCardBuilderTests; do
     run_suite "$suite" "${SOURCES[@]}" "$ROOT/tests/$suite.swift"
 done
 
