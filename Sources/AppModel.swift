@@ -10,7 +10,6 @@ import AVFoundation
 @MainActor final class PlaybackClock: ObservableObject {
     @Published private(set) var time: Double = 0
 
-    /// 同值更新不发布，暂停/静止时不再触发订阅方重绘
     func update(_ seconds: Double) {
         guard seconds.isFinite, seconds != time else { return }
         time = seconds
@@ -22,29 +21,39 @@ import AVFoundation
     @Published var rows: [Series] = []
     @Published var detail: Detail?
     @Published var busy = true
-    /// 列表首屏/全页加载中（区别于 busy 的操作互斥）：用于驱动列表页的转圈与「正在加载」空态
-    /// 分页（more）与选集播放等局部操作不置此标志，避免局部操作导致整页转圈、置灰无关按钮
     @Published var loadingList = false
     @Published var message = "正在启动…"
     @Published var episode: Int?
     @Published var hasMore = false
     let player = AVPlayer()
     @Published var isPlaying = false
-    /// 播放进度：由 AVPlayer 周期观察者按需更新，独立发布（见 PlaybackClock 注释）
     let playbackClock = PlaybackClock()
 
     // MARK: - 播放器交互状态
 
     @Published var playerControlsVisible = true
-    /// 鼠标是否正悬停于播放区（非全屏） 自动隐藏需「超时且鼠标不在播放区」同时成立，
-    /// 避免鼠标停在画面上时控件无故消失
+    /// 鼠标是否正悬停于播放区（非全屏）。进入/移动时由 `notePlaybackHover` 触发：
+    /// 控件隐藏则立即重新显示，已显示则重置自动隐藏倒计时（见 `PlayerZone`）。
     @Published var hoveringPlayer = false
-        /// 清晰度/倍速 popover 是否展开：展开时锁定控件栏，避免自动隐藏移除弹窗锚点
-        @Published var playerPopoverOpen = false
-    @Published var infoPanelOpen = false
+    /// 鼠标是否正悬停于某个具体控件（底部栏/信息面板等）：为 true 时暂停自动隐藏 二级操作
+    @Published var hoveringControls = false {
+        didSet { reconcileControls(.sync) }
+    }
+    /// 清晰度/倍速 popover 是否展开：展开时暂停自动隐藏，避免弹窗锚点被移除
+    @Published var playerPopoverOpen = false {
+        didSet { reconcileControls(.sync) }
+    }
+    /// 选集/相关作品面板是否展开：展开时暂停自动隐藏
+    @Published var infoPanelOpen = false {
+        didSet { reconcileControls(.sync) }
+    }
     @Published var pipActive = false
-    /// 播放控件自动隐藏定时任务：显示控件后 2.5 秒无操作则淡出
+    /// 按住拖动等需要持续保持显示的状态：由全屏窗口事件按鼠标按键设置
+    var keepControlsVisible = false
+    /// 播放控件自动隐藏倒计时任务：显示后 3 秒且无二级操作则淡出
     var controlsHideTask: Task<Void, Never>?
+    /// 播放区指针活动的最近一次时间：用于节流「移动即重置倒计时」，避免每次鼠标移动都重建 Task
+    var lastPlaybackHoverAt = Date.distantPast
     lazy var comments = CommentsStore { [weak self] series, episode in
         guard let self else { throw URLError(.cancelled) }
         return try await self.request("comments", ["series": series, "episode": episode])
@@ -96,6 +105,8 @@ import AVFoundation
     var cloudAllTask: Task<Void, Never>?
     var cloudRequestID = UUID()
     var accountGeneration = 0
+    /// 是否已在「我的」页触发过会话恢复
+    var sessionRecovered = false
     var pendingLoginID: String?
     var loginTask: Task<Void, Never>?
     var uploadTask: Task<Void, Never>?
@@ -139,7 +150,7 @@ import AVFoundation
     var homeWarmQuality: Int?
     var homeGeneration = UUID()
     @Published var homeCategory = "COMIC"
-    /// 用户主动点「开始刷剧」后，加载完成即试播第一部；进入首页默认不自动试播
+    /// 用户主动点「开始刷剧」后，加载完成即试播第一部
     var autoTrialAfterLoad = false
     var cloudResume: (Int, Double)?
     private var base: URL?
@@ -173,7 +184,7 @@ import AVFoundation
 
     init(resourcesURL: URL? = Bundle.main.resourceURL, library: LocalLibrary? = nil, restoreSession: Bool = true, bridgeURL: URL? = nil, session: URLSession = .shared) {
         self.base = bridgeURL; self.requestSession = session
-        // 仅当无桥接 URL（正式运行）时启用原生协议层；测试仍走注入的本地 HTTP 桥
+        // 仅当无桥接 URL（正式运行）时启用原生协议层
         self.backend = bridgeURL == nil ? HongguoBackend(session: session) : nil
         self.library = library ?? LocalLibrary()
         installPlayerObservations()
@@ -225,9 +236,8 @@ import AVFoundation
         defer { busy = false }
         if base != nil { return }
         if backend != nil {
-            Log.shared.info("启动：Swift 原生模式")
+            Log.shared.info("启动")
             message = "输入剧名，开始找剧"
-            if restoreSession { Task { await restoreAccount() } }
             return
         }
         message = "客户端启动失败，请重新打开应用"
@@ -326,7 +336,6 @@ import AVFoundation
         performGeneration = generation
         action = Task {
             defer {
-                // 仅当自己仍是当前代时才复位 busy 与处理 pending；被 interrupt 打断后由新任务接管
                 if self.performGeneration == generation {
                     busy = false
                     if let next = pendingHomeSeries, !stopping { pendingHomeSeries = nil; open(next, trial: true) }
@@ -364,7 +373,7 @@ import AVFoundation
     }
 }
 
-/// 平台集成接口：由 GUI 层实现，逻辑层只依赖此抽象，不碰 AppKit/AVKit
+/// 平台集成接口：由 GUI 层实现
 @MainActor
 protocol ModelPlatformInterface: AnyObject {
     func installPlatformIntegrations(resourcesURL: URL?, restoreSession: Bool)

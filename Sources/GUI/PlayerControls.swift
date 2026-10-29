@@ -2,14 +2,13 @@
 import SwiftUI
 import AVKit
 
-// MARK: - 播放控件
-//
-// 控件：交互层、顶部栏、底部栏与进度条
-// 显隐统一由 `Model.playerControlsVisible` 驱动（见 `revealPlayerControls`）
+// MARK: - 播放控件（交互层 / 底部栏 / 进度条）
+// 显隐统一由 `reconcileControls(_:)` 判定（见 PlayerChrome）
 
 // MARK: - 交互层
 
-/// 透明交互层：点击画面切换控件显隐；鼠标移动时显示控件并刷新自动隐藏计时
+/// 透明交互层：点击画面切换显隐
+/// hover 不在这里做——它只覆画面层，点控件栏会被误判为离开播放区；见 `PlayerZone`
 struct PlayerTapLayer: View {
     @ObservedObject var model: Model
 
@@ -17,42 +16,43 @@ struct PlayerTapLayer: View {
         Color.clear
             .contentShape(Rectangle())
             .onTapGesture {
-                model.playerControlsVisible ? model.hidePlayerControls() : model.revealPlayerControls()
-            }
-            .onContinuousHover { phase in
-                switch phase {
-                case .active:
-                    model.hoveringPlayer = true
-                    model.revealPlayerControls()
-                case .ended:
-                    model.hoveringPlayer = false
-                }
+                model.togglePlayerControls()
             }
     }
 }
 
-// MARK: - 顶部栏
-
-/// 顶部悬浮操作栏：仅试播场景的上一部/下一部/观看全集
-struct PlayerTopBar: View {
+/// 播放区 hover：进入/移动 → `notePlaybackHover`（隐藏则显示，显示则重置计时）
+/// 覆盖整个播放区；全屏由 `FullscreenPlayback` 的鼠标事件监听处理
+struct PlayerZone: ViewModifier {
     @ObservedObject var model: Model
 
-    var body: some View {
-        HStack {
-            Spacer()
-            if model.preview {
-                Button("上一部") { model.moveRecommendation(-1) }
-                Button("下一部") { model.moveRecommendation(1) }
-                Button("观看全集") { model.watchFull() }
+    func body(content: Content) -> some View {
+        content.onContinuousHover { phase in
+            switch phase {
+            case .active: model.notePlaybackHover()
+            case .ended: if model.hoveringPlayer { model.hoveringPlayer = false }
             }
         }
-        .padding(Theme.spacingXL)
+    }
+}
+
+/// 控件区 hover：置 `hoveringControls`，区分「停在控件上」与「停在画面上」——
+/// 停在控件上时暂停自动隐藏（对齐 macOS 原生播放器）
+struct ControlHoverZone: ViewModifier {
+    @ObservedObject var model: Model
+
+    func body(content: Content) -> some View {
+        content.onContinuousHover { phase in
+            switch phase {
+            case .active: if !model.hoveringControls { model.hoveringControls = true }
+            case .ended: if model.hoveringControls { model.hoveringControls = false }
+            }
+        }
     }
 }
 
 // MARK: - 底部栏
 
-/// 底部控件栏：进度条、播放/暂停、时间、选集/下一集/收藏/弹幕/清晰度/倍速、PiP/投屏
 struct PlayerBottomBar: View {
     @ObservedObject var model: Model
     let detail: Detail
@@ -67,8 +67,7 @@ struct PlayerBottomBar: View {
     var body: some View {
         HStack(spacing: Theme.spacingXXL) {
             playPauseButton
-            // 时间 + 进度条由 PlaybackClock（AVPlayer 周期时间观察者）驱动，
-            // 不再在 SwiftUI TimelineView 里自行采样 currentTime，避免跳动
+            // 进度由 PlaybackClock（AVPlayer 周期观察者）驱动，不用 TimelineView 采样，避免跳动
             PlayerProgress(clock: model.playbackClock, player: model.player)
             episodeControls
             favoriteButton
@@ -79,9 +78,8 @@ struct PlayerBottomBar: View {
         .padding(.horizontal, Theme.playerBarHPadding).padding(.vertical, Theme.playerBarVPadding)
         .background(Theme.playerBarGradient)
         .tint(.white)
+        .modifier(ControlHoverZone(model: model))
     }
-
-    // MARK: - 布局
 
     private var playPauseButton: some View {
         iconButton(model.isPlaying ? "pause.fill" : "play.fill", help: model.isPlaying ? "暂停" : "播放", font: .title2) {
@@ -103,8 +101,8 @@ struct PlayerBottomBar: View {
 
     @ViewBuilder
     private var pickerControls: some View {
-        pickerCapsule(Self.qualityLabel(model.quality), kind: .quality, minWidth: 64)
-        pickerCapsule("倍速" + speedText(model.speed), kind: .speed, minWidth: 72)
+        pickerCapsule(Self.qualityLabel(model.quality), kind: .quality, minWidth: 75)
+        pickerCapsule("倍速" + speedText(model.speed), kind: .speed, minWidth: 90)
     }
 
     private var pictureInPictureButton: some View {
@@ -123,15 +121,13 @@ struct PlayerBottomBar: View {
         }
     }
 
-    /// 弹幕开关：读写 `DanmakuStore.enabled`，渲染见 `DanmakuViews` 的 `DanmakuOverlay`
-    /// 开关常显在控件栏；失败的自动退避重试状态不在栏内展示，避免占用空间
+    /// 弹幕开关：读写 `DanmakuStore.enabled`失败退避重试状态不在栏内展示，避免占空间
     private var danmakuControl: some View {
         Toggle("弹幕", isOn: $model.danmaku.enabled)
             .playerToggle()
             .help("按视频时间同步的真实弹幕；暂停、拖动和倍速同步")
     }
 
-    /// 图标按钮
     private func iconButton(_ systemName: String, help: String, font: Font = .body, color: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Group {
@@ -154,7 +150,7 @@ struct PlayerBottomBar: View {
             expandedPicker = kind
             model.revealPlayerControls()
         }
-        // 由系统 .popover 承载选项：点击外部/再次点按会自动收起
+        // 系统 .popover：点击外部/再次点按自动收起
         .popover(isPresented: Binding(
             get: { expandedPicker == kind },
             set: { expandedPicker = $0 ? kind : (expandedPicker == kind ? nil : expandedPicker) }
@@ -183,17 +179,17 @@ struct PlayerBottomBar: View {
                 }
             }
         }
-        .padding(4)
-        .frame(minWidth: 84)
+        // .padding(4)
+        .frame(minWidth: 95)
         .onAppear { model.playerPopoverOpen = true; model.revealPlayerControls() }
-        .onDisappear { model.playerPopoverOpen = false; model.revealPlayerControls() }
+        .onDisappear { model.playerPopoverOpen = false }
     }
 
     private func optionRow(_ text: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: Theme.spacingMD) {
                 Text(text).font(.subheadline).fontWeight(selected ? .semibold : .regular)
-                Spacer(minLength: Theme.spacingLG)
+                // Spacer(minLength: Theme.spacingLG)
                 Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).opacity(selected ? 1 : 0)
             }
             .padding(.horizontal, 10).padding(.vertical, Theme.capsuleVPadding)
@@ -203,9 +199,7 @@ struct PlayerBottomBar: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - 辅助
-
-    /// 清晰度文案的唯一真源：按钮标签与弹出面板选项共用（0 表示自动）
+    /// 清晰度文案唯一真源：按钮与面板共用（0 表示自动）
     private static func qualityLabel(_ quality: Int) -> String {
         quality == 0 ? "自动" : "\(quality)P"
     }
@@ -215,8 +209,7 @@ struct PlayerBottomBar: View {
 
 // MARK: - 进度条（独立订阅）
 
-/// 进度条 + 时间文本 单独订阅 PlaybackClock：进度刷新只重绘这一小块，
-/// 不会带动包含大量按钮的整条控件栏（以及上层视图树）重算
+/// 单独订阅 PlaybackClock，进度刷新只重绘这一小块，不牵动整条控件栏与上层视图树
 private struct PlayerProgress: View {
     @ObservedObject var clock: PlaybackClock
     let player: AVPlayer
@@ -244,13 +237,12 @@ private struct PlayerProgress: View {
 
 // MARK: - 右上角全屏按钮
 
-/// 右上角全屏入口的语义：进入 vs 退出。
 enum PlayerCorner {
     case enterFullscreen
     case exitFullscreen
 }
 
-/// 右上角全屏按钮：试播页（plain）与正式/全屏（circle）共用同一套图标与动作。
+/// 全屏按钮：试播（plain）与正式/全屏（circle）共用图标与动作
 struct PlayerCornerButton: View {
     @ObservedObject var model: Model
     let corner: PlayerCorner

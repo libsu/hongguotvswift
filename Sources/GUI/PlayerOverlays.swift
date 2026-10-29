@@ -4,7 +4,7 @@ import SwiftUI
 
 // MARK: - 覆盖层
 
-/// 覆盖层所在场景：决定是否显示 PiP 等传输控件，以及右上角按钮语义。
+/// 播放覆盖层场景：决定 PiP 传输控件与右上角按钮语义
 enum PlayerChromeContext {
     case window
     case fullscreen
@@ -13,9 +13,7 @@ enum PlayerChromeContext {
     var corner: PlayerCorner { self == .window ? .enterFullscreen : .exitFullscreen }
 }
 
-/// 播放区悬浮覆盖层（右上角全屏入口 + 顶部栏 + 底部栏 + 信息面板）
-/// 全屏与非全屏共用一套布局，仅右上角按钮语义与底部栏传输控件（PiP）不同，
-/// 消除 FullscreenSurface 与 EpisodeView 的重复实现
+/// 播放区覆盖层：全屏/窗口共用布局，仅右上角按钮语义与 PiP 开关不同
 struct PlayerOverlays: View {
     @ObservedObject var model: Model
     let detail: Detail?
@@ -33,18 +31,11 @@ struct PlayerOverlays: View {
                 }
                 .transition(.opacity)
             }
-            // 顶部悬浮栏（仅试播场景的上一部/下一部/观看全集）
-            if model.playerControlsVisible {
-                VStack { PlayerTopBar(model: model); Spacer() }
-                    .transition(.opacity)
-            }
-            // 底部渐变栏
             if let detail, model.playerControlsVisible {
                 VStack { Spacer(); PlayerBottomBar(model: model, detail: detail, showsTransport: context.showsTransport) }
                     .transition(.opacity)
             }
-            // 底部信息面板（选集/相关作品）：叠在控件栏之上，不占控件栏的位置
-            // 高度由内容决定，限制在 Theme.infoPanelMinHeight…infoPanelMaxHeight 区间（见 PlayerInfoPanel）
+            // 信息面板叠在控件栏之上，不占控件栏位置；高度限制在 Theme.infoPanelMinHeight…maxHeight
             if let detail, model.infoPanelOpen {
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)

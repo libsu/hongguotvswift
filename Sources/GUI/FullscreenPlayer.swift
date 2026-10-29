@@ -23,6 +23,10 @@ private final class PlaybackWindow: NSWindow {
     func show() {
         guard window == nil else { window?.makeKeyAndOrderFront(nil); return }
         guard let model else { return }
+        // 打开全屏时清除窗口侧残留的悬停/拖动保持，避免共享状态让全屏控件被永久暂停
+        model.hoveringControls = false
+        model.hoveringPlayer = false
+        model.keepControlsVisible = false
         let source = NSApp.keyWindow
         let alreadyFullscreen = source?.styleMask.contains(.fullScreen) == true
         let screen = source?.screen ?? NSScreen.main ?? NSScreen.screens[0]
@@ -39,7 +43,7 @@ private final class PlaybackWindow: NSWindow {
         self.window = window
         window.makeKeyAndOrderFront(nil)
         if !alreadyFullscreen { window.toggleFullScreen(nil) }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .leftMouseDragged, .keyDown]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp, .keyDown]) { [weak self] event in
             guard let self, event.window === self.window else { return event }
             if event.type == .keyDown, PlayerKeyCommand(keyCode: event.keyCode) == .escape {
                 if self.model?.infoPanelOpen == true { self.model?.infoPanelOpen = false; self.revealControls() } else { self.close() }; return nil
@@ -60,8 +64,14 @@ private final class PlaybackWindow: NSWindow {
     func windowDidExitFullScreen(_ notification: Notification) { close() }
     func windowWillClose(_ notification: Notification) { cleanup(); window?.contentView = nil; window = nil }
     private func cleanup() {
+        // 重置所有瞬态保持状态，避免全屏关闭后残留导致窗口模式自动隐藏被永久暂停；
+        // 最后通过 reconcile 统一恢复显示（经唯一判定入口）。
         model?.infoPanelOpen = false
-        model?.playerControlsVisible = true
+        model?.playerPopoverOpen = false
+        model?.hoveringControls = false
+        model?.hoveringPlayer = false
+        model?.keepControlsVisible = false
+        model?.revealPlayerControls()
         if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
     }
     func close() {

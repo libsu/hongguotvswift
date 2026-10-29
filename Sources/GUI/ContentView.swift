@@ -7,9 +7,7 @@ struct ContentView: View {
     @ObservedObject var library: LocalLibrary
     init(model: Model) { self.model = model; library = model.library }
 
-    // MARK: - 内容区最小尺寸
-    /// （上下控件栏/选集面板都是叠在画面上的覆盖层，见 `PlayerOverlays`）
-    /// 侧栏宽度不参与这个尺寸
+    // MARK: - 播放区/内容区最小尺寸
     static let detailMinWidth: CGFloat = 720
     static let detailMinHeight: CGFloat = 405 - 50
     /// 侧栏最小/最大宽度，与 `ModelPlatform` 的窗口最小尺寸保持一致
@@ -306,6 +304,8 @@ struct EpisodeView: View {
         }
         .animation(Theme.overlayAnimation, value: model.playerControlsVisible)
         .animation(Theme.overlayAnimation, value: model.infoPanelOpen)
+        .modifier(PlayerZone(model: model))
+        .onAppear { model.reconcileControls(.sync) }
         .colorScheme(.dark)
     }
 }

@@ -20,6 +20,7 @@ struct PlayerInfoPanel: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
         .padding(.horizontal, Theme.overlayPadding).padding(.bottom, Theme.spacingXL)
+        .modifier(ControlHoverZone(model: model))
     }
 
     // MARK: - 布局
