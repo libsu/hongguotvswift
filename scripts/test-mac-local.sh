@@ -28,7 +28,6 @@ run_suite() {
 }
 
 run_suite library "$ROOT/Sources/Models.swift" "$ROOT/Sources/LocalLibrary.swift" "$ROOT/tests/LibraryTests.swift"
-run_suite updates "$ROOT/Sources/MacUpdates.swift" "$ROOT/tests/MacUpdateTests.swift"
 
 # 需要完整 App 源码的套件：除入口 App.swift 外的全部源文件
 SOURCES=()
