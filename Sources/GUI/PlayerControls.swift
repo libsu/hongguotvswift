@@ -8,7 +8,7 @@ import AVKit
 // MARK: - 交互层
 
 /// 透明交互层：点击画面切换显隐
-/// hover 不在这里做——它只覆画面层，点控件栏会被误判为离开播放区；见 `PlayerZone`
+
 struct PlayerTapLayer: View {
     @ObservedObject var model: Model
 
@@ -65,9 +65,9 @@ struct PlayerBottomBar: View {
     private static let speeds = PlaybackOptions.speeds
 
     var body: some View {
-        HStack(spacing: Theme.spacingXXL) {
+        HStack(spacing: Theme.spacingLG) {
             playPauseButton
-            // 进度由 PlaybackClock（AVPlayer 周期观察者）驱动，不用 TimelineView 采样，避免跳动
+            // 进度由 PlaybackClock（AVPlayer 周期观察者）驱动
             PlayerProgress(clock: model.playbackClock, player: model.player)
             episodeControls
             favoriteButton
@@ -93,16 +93,16 @@ struct PlayerBottomBar: View {
             model.infoPanelOpen.toggle()
             model.revealPlayerControls()
         }
-        if !model.preview, let episode = model.episode {
-            iconButton("forward.end.fill", help: "下一集") { model.play(episode + 1) }
-                .disabled(episode + 1 >= detail.episodes.count)
+        if !model.preview, model.episode != nil {
+            iconButton("forward.end.fill", help: "下一集") { model.play((model.episode ?? 0) + 1) }
+                .disabled(!model.canPlayNextEpisode)
         }
     }
 
     @ViewBuilder
     private var pickerControls: some View {
         pickerCapsule(Self.qualityLabel(model.quality), kind: .quality, minWidth: 75)
-        pickerCapsule("倍速" + speedText(model.speed), kind: .speed, minWidth: 90)
+        pickerCapsule("倍速" + speedText(model.speed), kind: .speed, minWidth: 75)
     }
 
     private var pictureInPictureButton: some View {
@@ -125,18 +125,13 @@ struct PlayerBottomBar: View {
     private var danmakuControl: some View {
         Toggle("弹幕", isOn: $model.danmaku.enabled)
             .playerToggle()
-            .help("按视频时间同步的真实弹幕；暂停、拖动和倍速同步")
+            .help("弹幕开")
     }
 
     private func iconButton(_ systemName: String, help: String, font: Font = .body, color: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Group {
-                if let color {
-                    Image(systemName: systemName).foregroundStyle(color)
-                } else {
-                    Image(systemName: systemName)
-                }
-            }
+            Image(systemName: systemName)
+            .foregroundStyle(color ?? .white)
             .font(font)
         }
         .buttonStyle(.borderless)
@@ -150,13 +145,16 @@ struct PlayerBottomBar: View {
             expandedPicker = kind
             model.revealPlayerControls()
         }
-        // 系统 .popover：点击外部/再次点按自动收起
-        .popover(isPresented: Binding(
-            get: { expandedPicker == kind },
-            set: { expandedPicker = $0 ? kind : (expandedPicker == kind ? nil : expandedPicker) }
-        ), arrowEdge: .top) {
+        .popover(isPresented: pickerBinding(kind), arrowEdge: .top) {
             optionsPanel(kind)
         }
+    }
+
+    private func pickerBinding(_ kind: PickerKind) -> Binding<Bool> {
+        Binding(
+            get: { expandedPicker == kind },
+            set: { isOn in expandedPicker = isOn ? kind : nil }
+        )
     }
 
     @ViewBuilder
@@ -179,8 +177,7 @@ struct PlayerBottomBar: View {
                 }
             }
         }
-        // .padding(4)
-        .frame(minWidth: 95)
+        .padding(Theme.spacingXS)
         .onAppear { model.playerPopoverOpen = true; model.revealPlayerControls() }
         .onDisappear { model.playerPopoverOpen = false }
     }
@@ -192,7 +189,7 @@ struct PlayerBottomBar: View {
                 // Spacer(minLength: Theme.spacingLG)
                 Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).opacity(selected ? 1 : 0)
             }
-            .padding(.horizontal, 10).padding(.vertical, Theme.capsuleVPadding)
+            .padding(.horizontal, 5).padding(.vertical, 5)
             .contentShape(Rectangle())
             .background(selected ? Color.primary.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 5))
         }
@@ -209,18 +206,36 @@ struct PlayerBottomBar: View {
 
 // MARK: - 进度条（独立订阅）
 
-/// 单独订阅 PlaybackClock，进度刷新只重绘这一小块，不牵动整条控件栏与上层视图树
+/// 单独订阅 PlaybackClock，进度刷新只重绘这一小块
 private struct PlayerProgress: View {
     @ObservedObject var clock: PlaybackClock
     let player: AVPlayer
+    /// 拖动中只更新预览时间，松手才 seek
+    @State private var scrubbing = false
+    @State private var previewTime = 0.0
+
+    private var displayedTime: Double {
+        scrubbing ? previewTime : (clock.time.isFinite ? clock.time : 0)
+    }
 
     var body: some View {
-        HStack(spacing: Theme.spacingXXL) {
-            Text("\(timeText(clock.time)) / \(timeText(duration))").monospacedDigit().font(.caption).foregroundStyle(.secondary)
+        let total = duration
+        return HStack(spacing: Theme.spacingXXL) {
+            Text("\(timeText(displayedTime)) / \(timeText(total))").monospacedDigit().font(.caption).foregroundStyle(.secondary)
             Slider(value: Binding(
-                get: { clock.time.isFinite ? clock.time : 0 },
-                set: { player.seek(to: CMTime(seconds: $0, preferredTimescale: 600)) }
-            ), in: 0...max(1, duration))
+                get: { displayedTime },
+                set: { previewTime = $0 }
+            ), in: 0...max(1, total)) { editing in
+                if editing {
+                    scrubbing = true
+                } else {
+                    let target = CMTime(seconds: previewTime, preferredTimescale: 600)
+                    clock.update(previewTime)
+                    player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                        DispatchQueue.main.async { scrubbing = false }
+                    }
+                }
+            }
             .tint(.white)
         }
     }
@@ -257,36 +272,27 @@ struct PlayerCornerButton: View {
         Button(action: perform) {
             switch style {
             case .circle:
-                Image(systemName: symbol)
+                Image(systemName: presentation.symbol)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(8)
                     .background(.black.opacity(0.5), in: Circle())
             case .plain:
-                Image(systemName: symbol)
+                Image(systemName: presentation.symbol)
             }
         }
-        .help(help)
+        .help(presentation.help)
     }
 
-    private var symbol: String {
+    /// 图标 / 提示 / 动作
+    private var presentation: (symbol: String, help: String, action: @MainActor () -> Void) {
         switch corner {
-        case .enterFullscreen: return "arrow.up.left.and.arrow.down.right"
-        case .exitFullscreen: return "arrow.down.right.and.arrow.up.left"
+        case .enterFullscreen:
+            return ("arrow.up.left.and.arrow.down.right", "全屏", { model.fullscreenPlayback.show() })
+        case .exitFullscreen:
+            return ("arrow.down.right.and.arrow.up.left", "退出全屏 · Esc", { model.fullscreenPlayback.close() })
         }
     }
 
-    private var help: String {
-        switch corner {
-        case .enterFullscreen: return "全屏"
-        case .exitFullscreen: return "退出全屏 · Esc"
-        }
-    }
-
-    private func perform() {
-        switch corner {
-        case .enterFullscreen: model.fullscreenPlayback.show()
-        case .exitFullscreen: model.fullscreenPlayback.close()
-        }
-    }
+    private func perform() { presentation.action() }
 }

@@ -3,10 +3,9 @@ import Foundation
 import Combine
 import AVFoundation
 
-/// UI 播放进度（秒），独立于 Model 发布
-/// 播放时 AVPlayer 的回调频率很高，若写回 Model 的 @Published 属性，会让 ContentView/EpisodeView
-/// 这类观察 Model 的大视图树每次都重算 body，是播放时 CPU/能耗偏高的主要原因
-/// 只有真正显示进度的进度条/时间文本订阅本对象
+/// UI 播放进度（秒），独立于 Model 发布。
+/// AVPlayer 回调频率很高，若写回 Model 的 @Published，ContentView/EpisodeView 等大视图树会每次重算 body，
+/// 是播放时 CPU/能耗偏高的主因；只有显示进度的进度条/时间文本订阅本对象。
 @MainActor final class PlaybackClock: ObservableObject {
     @Published private(set) var time: Double = 0
 
@@ -32,27 +31,25 @@ import AVFoundation
     // MARK: - 播放器交互状态
 
     @Published var playerControlsVisible = true
-    /// 鼠标是否正悬停于播放区（非全屏）。进入/移动时由 `notePlaybackHover` 触发：
-    /// 控件隐藏则立即重新显示，已显示则重置自动隐藏倒计时（见 `PlayerZone`）。
+    /// 鼠标是否正悬停在播放区（非全屏）。进入/移动时由 `notePlaybackHover` 驱动显隐。
     @Published var hoveringPlayer = false
-    /// 鼠标是否正悬停于某个具体控件（底部栏/信息面板等）：为 true 时暂停自动隐藏 二级操作
+    /// 鼠标停在具体控件上（底部栏/信息面板）：为 true 时暂停自动隐藏。
     @Published var hoveringControls = false {
         didSet { reconcileControls(.sync) }
     }
-    /// 清晰度/倍速 popover 是否展开：展开时暂停自动隐藏，避免弹窗锚点被移除
+    /// 清晰度/倍速 popover 展开：暂停自动隐藏，否则锚点会被移除。
     @Published var playerPopoverOpen = false {
         didSet { reconcileControls(.sync) }
     }
-    /// 选集/相关作品面板是否展开：展开时暂停自动隐藏
+    /// 选集/相关作品面板展开：暂停自动隐藏。
     @Published var infoPanelOpen = false {
         didSet { reconcileControls(.sync) }
     }
     @Published var pipActive = false
-    /// 按住拖动等需要持续保持显示的状态：由全屏窗口事件按鼠标按键设置
+    /// 按住拖动等需持续保持显示的状态，由全屏窗口事件按鼠标按键设置。
     var keepControlsVisible = false
-    /// 播放控件自动隐藏倒计时任务：显示后 3 秒且无二级操作则淡出
     var controlsHideTask: Task<Void, Never>?
-    /// 播放区指针活动的最近一次时间：用于节流「移动即重置倒计时」，避免每次鼠标移动都重建 Task
+    /// 指针活动最近时间：节流「移动即重置倒计时」，避免每次鼠标移动都重建 Task。
     var lastPlaybackHoverAt = Date.distantPast
     lazy var comments = CommentsStore { [weak self] series, episode in
         guard let self else { throw URLError(.cancelled) }
@@ -71,7 +68,7 @@ import AVFoundation
     let detailCache = DetailCache()
     @Published var section = Section.search
     @Published var navigation = Destination.search
-    /// 上一次栏目，用于跨栏目切换时判断是否打断进行中的请求
+    /// 上一次栏目：跨栏目切换时判断是否打断进行中的请求。
     var _previousSection: Section?
     @Published var showDetail = false
     @Published var catalogRows: [Series] = []
@@ -89,12 +86,12 @@ import AVFoundation
     @Published var qrImageData: Data?
     @Published var cloudType = CloudType.history
     @Published var cloudRows: [CloudEntry] = []
-    /// 「我的-账户」页四类账号片单的独立缓存（登录后一次性加载，平铺展示）
+    /// 「我的-账户」页四类账号片单的独立缓存（登录后一次加载）。
     @Published var cloudFavorites: [CloudEntry] = []
     @Published var cloudHistory: [CloudEntry] = []
     @Published var cloudOnline: [CloudEntry] = []
     @Published var cloudUpcoming: [CloudEntry] = []
-    /// 已登录账户的收藏剧集 id 集合，用于收藏按钮的「已收藏」态判断
+    /// 已登录账户收藏的剧集 id，用于收藏按钮「已收藏」态。
     @Published var accountFavorites: Set<String> = []
     @Published var cloudLoading = false
     @Published var cloudError: String?
@@ -105,7 +102,7 @@ import AVFoundation
     var cloudAllTask: Task<Void, Never>?
     var cloudRequestID = UUID()
     var accountGeneration = 0
-    /// 是否已在「我的」页触发过会话恢复
+    /// 是否已在「我的」页触发过会话恢复（避免启动路径读钥匙串）。
     var sessionRecovered = false
     var pendingLoginID: String?
     var loginTask: Task<Void, Never>?
@@ -123,7 +120,7 @@ import AVFoundation
     @Published var autoNext = UserDefaults.standard.object(forKey: "autoNext") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoNext, forKey: "autoNext") }
     }
-    /// 首页直接播放：开启后进入首页加载完成即自动试播第一部，不再等待「开始刷剧」确认
+    /// 首页直接播放：开启后首页加载完即自动试播第一部，不再等「开始刷剧」。
     @Published var homeAutoPlay = UserDefaults.standard.object(forKey: "homeAutoPlay") as? Bool ?? false {
         didSet { UserDefaults.standard.set(homeAutoPlay, forKey: "homeAutoPlay") }
     }
@@ -137,9 +134,9 @@ import AVFoundation
     private var endObserver: NSObjectProtocol?
     var pendingNext = false
     var warmNextTask: Task<Void, Never>?
-    /// 自动连播切集失败后的幂等量试标记：同一集只允许兜底重试一次，避免软失败（如「播放接口返回空响应」）时无限重试
+    /// 自动连播切集失败后的幂等重试标记：同一集只允一次兵底重试，避免软失败时无限重试。
     var autoRetrying = false
-    /// 已触发「靠近结尾预取」的集（episodeID），避免同一集重复预取
+    /// 已触发「靠近结尾预取」的集（episodeID），避免重复预取。
     var warmedNearEndKey: String?
     var stopping = false
     @Published var preview = false
@@ -150,28 +147,28 @@ import AVFoundation
     var homeWarmQuality: Int?
     var homeGeneration = UUID()
     @Published var homeCategory = "COMIC"
-    /// 用户主动点「开始刷剧」后，加载完成即试播第一部
+    /// 用户主动点过「开始刷剧」后，加载完成即试播第一部。
     var autoTrialAfterLoad = false
     var cloudResume: (Int, Double)?
     private var base: URL?
     var page = 1
     var searched = ""
     var action: Task<Void, Never>?
-    /// perform 请求代次：跨栏目打断请求后，旧任务的 defer 依靠它避免误复位 busy/误处理 pending
+    /// perform 请求代次：跨栏目打断后，旧任务靠它避免误复位 busy / 误处理 pending。
     private var performGeneration = UUID()
-    /// 详情加载代次：open 拆成「先切骨架 + 后台填充」后，
+    /// 详情加载代次（open 拆为「先切骨架 + 后台填充」后用于丢弃过期响应）。
     var detailGeneration = UUID()
     var detailTask: Task<Void, Never>?
     private var playerObservation: NSKeyValueObservation?
     private let requestSession: URLSession
     let backend: HongguoBackend?
-    /// 平台集成接口（键盘监听 / 全屏 / 画中画等） 由 GUI 层注入；纯逻辑/测试场景为 nil
+    /// 平台集成（键盘监听/全屏/画中画），由 GUI 层注入；纯逻辑/测试场景为 nil。
     weak var platformInterface: (any ModelPlatformInterface)?
-    /// 当前播放会话的资源加载委托（阶段 3），保持强引用避免被提前释放
+    /// 当前播放会话的资源加载委托，强引用避免提前释放。
     var activeLoader: ResourceLoader?
-    /// 切集预热缓存（阶段 3），按 episodeID+quality 键存已解析的加密索引
+    /// 切集预热缓存：episodeID+quality → 已解析的加密索引。
     let preparedCache = PreparedCache()
-    /// 预加载好的「下一集/下一部剧首集」播放项，到时直接切换实现无缝/秒开
+    /// 预加载的下一集/下一部首集播放项，到时直接切换实现秒开。
     struct PrewarmedEpisode {
         let item: AVPlayerItem
         let episodeID: String
@@ -184,7 +181,7 @@ import AVFoundation
 
     init(resourcesURL: URL? = Bundle.main.resourceURL, library: LocalLibrary? = nil, restoreSession: Bool = true, bridgeURL: URL? = nil, session: URLSession = .shared) {
         self.base = bridgeURL; self.requestSession = session
-        // 仅当无桥接 URL（正式运行）时启用原生协议层
+        // 仅无桥接 URL（正式运行）时启用原生协议层。
         self.backend = bridgeURL == nil ? HongguoBackend(session: session) : nil
         self.library = library ?? LocalLibrary()
         installPlayerObservations()
@@ -193,8 +190,7 @@ import AVFoundation
 
     // MARK: - 播放器状态观测
 
-    /// 装配播放器观察者：失败提示 / 播放状态 / 5s 存进度与预热 / 0.1s 进度时钟 / 播放结束
-    /// 观察者随 Model 生命周期存在；`shutdown()` 负责移除定时与通知观察者
+    /// 装配播放器观察者；随 Model 生命周期存在，`shutdown()` 负责移除。
     private func installPlayerObservations() {
         playerObservation = player.observe(\.currentItem?.status, options: [.new]) { [weak self] player, _ in
             guard player.currentItem?.status == .failed else { return }
@@ -209,8 +205,8 @@ import AVFoundation
                 self?.warmNextIfNearEnd()
             }
         }
-        // UI 进度：控件隐藏时无人显示进度，直接跳过更新；可见时 10Hz 足够（时间文本只到秒）
-        // 进度写进独立的 playbackClock，避免高频率刷新带动整棵视图树重绘
+        // 控件隐藏时无人看进度，跳过更新；可见时 10Hz 足够（时间文本只到秒）。
+        // 写进独立的 playbackClock，避免高频刷新带动整棵视图树重绘。
         playbackTimeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] time in
             let seconds = time.seconds
             guard seconds.isFinite else { return }
@@ -265,7 +261,7 @@ import AVFoundation
         }
     }
 
-    /// 原生协议层调度：返回 JSON 结构后，复用同一套 Decodable 解码
+    /// 原生协议层调度：返回 JSON 后复用同一套 Decodable 解码。
     private func requestNative<T: Decodable>(_ path: String, _ parameters: [String: String], backend: HongguoBackend) async throws -> T {
         let result: [String: Any]
         switch path {
@@ -299,12 +295,12 @@ import AVFoundation
     private func decodeNative<T: Decodable>(_ type: T.Type, data: Data) throws -> T {
         do { return try JSONDecoder().decode(T.self, from: data) }
         catch {
-            // 原生层返回结构若与桥不一致，尽量给出可读错误而非解码崩溃
+            // 结构不一致时给可读错误，而不是解码崩溃。
             throw NSError(domain: "Hongguo", code: 1, userInfo: [NSLocalizedDescriptionKey: "数据解析失败，请重试 "])
         }
     }
 
-    /// 账号层原生调度（阶段 4） path = "account/<action>"
+    /// 账号层原生调度，path = "account/<action>"。
     private func requestAccount<T: Decodable>(_ path: String, _ parameters: [String: String], body: [String: Any]?, backend: HongguoBackend) async throws -> T {
         let action = String(path.dropFirst("account/".count))
         let result = try await backend.accountHandle(action: action, query: parameters, body: body ?? [:])

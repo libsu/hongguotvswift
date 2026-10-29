@@ -58,16 +58,16 @@ struct DanmakuOverlay: View {
             let rows = danmaku.visible(at: time)
             Canvas { context, size in
                 for row in rows {
-                    let text = Text(row.item.text).font(.system(size: 22, weight: .bold))
+                    let text = Text(row.item.text).font(.system(size: Theme.danmakuFontSize, weight: .bold))
                     let white = context.resolve(text.foregroundColor(.white))
                     let black = context.resolve(text.foregroundColor(.black))
                     let width = white.measure(in: CGSize(width: CGFloat.infinity, height: CGFloat.infinity)).width
                     let fraction = min(1, max(0, (time * 1000 - Double(row.item.timeMS)) / Double(DanmakuStore.travelMS)))
                     let origin = CGPoint(x: size.width - (size.width + width) * fraction,
-                                         y: 62 + Double(row.lane) * 36)
+                                         y: Theme.danmakuTopOffset + Double(row.lane) * Theme.danmakuLaneHeight)
                     // A solid outline remains sharp over bright video without a blur filter.
-                    for dx in [-1.25, 0, 1.25] {
-                        for dy in [-1.25, 0, 1.25] where dx != 0 || dy != 0 {
+                    for dx in [-Theme.danmakuOutlineOffset, 0, Theme.danmakuOutlineOffset] {
+                        for dy in [-Theme.danmakuOutlineOffset, 0, Theme.danmakuOutlineOffset] where dx != 0 || dy != 0 {
                             context.draw(black, at: CGPoint(x: origin.x + dx, y: origin.y + dy), anchor: .topLeading)
                         }
                     }

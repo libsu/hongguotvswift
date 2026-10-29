@@ -2,7 +2,7 @@
 import Foundation
 
 enum RelatedWorks {
-    /// 解析相关作品 cell。
+    /// 解析相关作品 cell
     static func parse(raw: String, currentId: String) throws -> [RelatedWork] {
         let root = try parseJSON(raw)
         guard root.optInt("code", -1) == 0 else { throw ContentError("相关作品接口暂不可用") }

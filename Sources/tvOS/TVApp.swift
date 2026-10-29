@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // tvOS（Apple TV）前端入口
-// 与 macOS 的 GUI/ 入口（NSApplicationDelegate + Window）不同，tvOS 只有一个
-// 全屏 WindowGroup，没有菜单栏 / 多窗口 / 窗口尺寸，输入靠 Siri Remote 焦点系统
+// tvOS 只有一个 全屏 WindowGroup，没有菜单栏 / 多窗口 / 窗口尺寸，输入靠 Siri Remote 焦点系统
 import SwiftUI
 import AVKit
 
 /// tvOS 平台集成：实现 ModelPlatformInterface，规避 macOS 的 AppKit 集成
-/// tvOS 无全局键盘监听、无自更新；画中画/全屏由系统 AVPlayerViewController 接管
+/// 无全局键盘监听、无自更新；画中画/全屏由系统 AVPlayerViewController 接管
 @MainActor
 final class TVPlatformIntegration: ModelPlatformInterface {
     private weak var model: Model?
@@ -31,7 +30,7 @@ struct HongGuoTV: App {
     @StateObject private var model: Model
 
     init() {
-        // tvOS 默认清晰度 1080P（仅当用户从未手动设置过时生效，尊重用户后续选择）
+        // tvOS 默认清晰度 1080P 尊重用户后续选择
         if UserDefaults.standard.object(forKey: "playbackQuality") == nil {
             UserDefaults.standard.set(1080, forKey: "playbackQuality")
         }

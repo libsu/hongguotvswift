@@ -85,6 +85,28 @@ enum Destination: String, CaseIterable {
     }
 }
 
+/// 「我的」页三类片单（收藏 · 历史 · 已上线预约）的共享语义：
+/// 已登录 → 账户数据；未登录 → 本机数据（预约未登录为空）。
+/// macOS 与 tvOS 复用同一口径，避免「我的」页跨端不一致。
+enum MineSection: String, CaseIterable {
+    case favorites = "收藏"
+    case history = "历史"
+    case reservations = "预约"
+
+    /// 登录态 → 片单
+    @MainActor
+    func items(model: Model) -> [Series] {
+        switch self {
+        case .favorites:
+            return model.account?.loggedIn == true ? model.cloudFavorites.map(\.series) : model.library.contents.favorites
+        case .history:
+            return model.account?.loggedIn == true ? model.cloudHistory.map(\.series) : model.library.contents.history.map(\.series)
+        case .reservations:
+            return model.account?.loggedIn == true ? model.cloudOnline.map(\.series) : []
+        }
+    }
+}
+
 struct NavigationItem: Identifiable {
     let title: String
     let icon: String
@@ -126,6 +148,8 @@ extension Model {
         if !sameSection { interruptPendingRequest() }
         if destination == .home { loadHome(); return }
         loadSection()
+        // 进入「我的」页时尝试恢复会话（若非首次进入或已登录则跳过）
+        if destination == .mine || destination == .login { restoreAccountIfNeeded() }
     }
 
     /// 取消进行中的请求并复位 busy，允许紧接着发起新栏目的请求

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 「我的」栏目：收藏/历史/预约切换 + 扫码登录浮层 + 登录/登出控制。
-// tvOS 简化：已登录用账户数据，未登录用本地片单。
+// 「我的」栏目：收藏/历史/预约切换 + 扫码登录浮层 + 登录/登出控制
+// tvOS 简化：已登录用账户数据，未登录用本地片单
 import SwiftUI
 import UIKit
 
-/// 「我的」栏目：筛选区三个胶囊【收藏 / 历史 / 预约】切换下方卡片区，兼登录入口。
+/// 「我的」栏目：筛选区三个胶囊【收藏 / 历史 / 预约】切换下方卡片区，兼登录入口
 struct TVMineView: View {
     @ObservedObject var model: Model
     let canvasHeight: CGFloat
     @FocusState private var focus: String?
-    /// 扫码登录浮层内「取消登录」按钮的焦点：浮层显示时独占，避免焦点穿透到背景。
+    /// 扫码登录浮层内「取消登录」按钮的焦点：浮层显示时独占，避免焦点穿透到背景
     @FocusState private var cancelFocused: Bool
     @State private var category = "收藏"
 
@@ -23,7 +23,7 @@ struct TVMineView: View {
 
     var body: some View {
         TVSectionContainer(canvasHeight: canvasHeight) {
-            // b 筛选区：收藏/历史/预约 三胶囊 + （未登录时）扫码登录入口。
+            // b 筛选区：收藏/历史/预约 三胶囊 + （未登录时）扫码登录入口
             HStack(spacing: 16) {
                 TVCapsuleButton(title: "收藏", value: "收藏", current: category, focusKey: "mine:fav", focus: $focus) {
                     category = "收藏"
@@ -54,14 +54,14 @@ struct TVMineView: View {
                 )
             }
         } status: {
-            model.account?.loggedIn == true ? model.accountMessage : "未登录，展示本机片单；登录后同步账号数据。"
+            model.account?.loggedIn == true ? model.accountMessage : "未登录，展示本机片单；登录后同步账号数据"
         }
         .overlay {
             if let qrData = model.qrImageData, let image = UIImage(data: qrData) {
                 qrOverlay(image: image)
             }
         }
-        // 浮层显隐时重排焦点：显示时独占给「取消登录」，隐藏时交还背景。
+        // 浮层显隐时重排焦点：显示时独占给「取消登录」，隐藏时交还背景
         .onChange(of: model.qrImageData != nil) { _, showing in
             if showing {
                 focus = nil
@@ -86,9 +86,9 @@ struct TVMineView: View {
         }
     }
 
-    /// 扫码登录：全屏不透明黑底 + 居中二维码 + 取消登录退出。
-    /// 「取消登录」按钮独占焦点（浮层显示时自动聚焦），避免焦点穿透到遮挡住的背景。
-    /// 注意：登录轮询期间 `accountBusy` 恒为 true，但「取消登录」始终可用，供用户随时打断。
+    /// 扫码登录：全屏不透明黑底 + 居中二维码 + 取消登录退出
+    /// 「取消登录」按钮独占焦点（浮层显示时自动聚焦），避免焦点穿透到遮挡住的背景
+    /// 注意：登录轮询期间 `accountBusy` 恒为 true，但「取消登录」始终可用，供用户随时打断
     private func qrOverlay(image: UIImage) -> some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -111,11 +111,11 @@ struct TVMineView: View {
             }
             .padding(48)
         }
-        // 二维码显示期间，Menu/返回统一取消扫码（而非退回首页/其他栏目）。
+        // 二维码显示期间，Menu/返回统一取消扫码
         .onExitCommand { model.cancelLogin() }
     }
 
-    /// 登录/登出控制（未登录显示扫码登录，已登录显示昵称 + 登出）。
+    /// 登录/登出控制（未登录显示扫码登录，已登录显示昵称 + 登出）
     @ViewBuilder
     private var accountControl: some View {
         if model.account?.loggedIn == true {
@@ -128,7 +128,7 @@ struct TVMineView: View {
         }
     }
 
-    /// 扫码登录按钮：与「登出」按钮使用同一 TVCapsuleButton 渲染（自定义三态，含 qrcode 图标）。
+    /// 扫码登录按钮：与「登出」按钮使用同一 TVCapsuleButton 渲染（自定义三态，含 qrcode 图标）
     private var loginButton: some View {
         TVCapsuleButton(
             title: "扫码登录",
@@ -142,7 +142,7 @@ struct TVMineView: View {
         }
     }
 
-    /// 登出按钮：与首页「开始刷剧」按钮同等的自定义三态视觉，复用 TVCapsuleButton。
+    /// 登出按钮：与首页「开始刷剧」按钮同等的自定义三态视觉，复用 TVCapsuleButton
     private var logoutButton: some View {
         TVCapsuleButton(
             title: "登出",

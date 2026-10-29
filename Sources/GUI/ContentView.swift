@@ -10,14 +10,13 @@ struct ContentView: View {
     // MARK: - 播放区/内容区最小尺寸
     static let detailMinWidth: CGFloat = 720
     static let detailMinHeight: CGFloat = 405 - 50
-    /// 侧栏最小/最大宽度，与 `ModelPlatform` 的窗口最小尺寸保持一致
     static let railMinWidth: CGFloat = 180
     static let railMaxWidth: CGFloat = Theme.railMaxWidth
 
     private var items: [Series] {
         switch model.section {
-        case .favorites: return library.contents.favorites
-        case .history: return library.contents.history.map(\.series)
+        case .favorites: return MineSection.favorites.items(model: model)
+        case .history: return MineSection.history.items(model: model)
         case .discover, .rank, .recommend: return model.catalogRows
         case .account: return model.cloudRows.map(\.series)
         default: return model.rows
@@ -125,7 +124,7 @@ struct ContentView: View {
             libraryBody
         }
         .padding(Theme.pagePadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: Self.detailMinHeight, maxHeight: .infinity, alignment: .top)
     }
 
     private var libraryHeader: some View {
@@ -244,43 +243,31 @@ struct ContentView: View {
     // MARK: - 剧集卡片
 
     private func card(_ series: Series, index: Int) -> some View {
-        let cloud = model.section == .account ? model.cloudRows.first(where: { $0.id == series.id }) : nil
-        let progressText = cloud?.episodeIndex.map { "账号看到第 \($0 + 1) 集" } ?? library.history(series.id)?.label
-
-        var firstLine = SeriesCard.SubtitleLine(text: series.badge.isEmpty ? "" : series.badge)
-        firstLine.trailingText = progressText
-        firstLine.trailingAccent = false
-
-        var lines = [firstLine]
-        if model.section == .rank, let rank = model.rankPositions[series.id] {
-            let text = [rank.rank.map { "第 \($0) 名" } ?? "", rank.heat].filter { !$0.isEmpty }.joined(separator: " · ")
-            lines.append(.init(text: text, accent: true))
-        } else if let publish = cloud?.publishText {
-            lines.append(.init(text: publish))
-        }
-
-        var menu: [SeriesCard.MenuItem] = [
-            .init(id: "fav", title: library.favorite(series.id) ? "取消本机收藏" : "加入本机收藏") { library.toggleFavorite(series) }
-        ]
-        if model.account?.loggedIn == true {
-            menu.append(.init(id: "cloud-fav", title: "加入账户收藏") { model.cloudFavorite(series, add: true) })
-            if model.section == .account && model.cloudType == .favorites {
-                menu.append(.init(id: "cloud-unfav", title: "取消账户收藏") { model.cloudFavorite(series, add: false) })
-            }
-        }
-        if model.section == .history {
-            menu.append(.init(id: "remove-history", title: "删除本机观看记录") { library.removeHistory(series.id) })
-        }
+        let context = SeriesCardBuilder.Context(
+            section: model.section,
+            cloudType: model.section == .account ? model.cloudType : nil,
+            rankPosition: model.rankPositions[series.id],
+            cloudEntry: model.section == .account ? model.cloudRows.first(where: { $0.id == series.id }) : nil,
+            accountLoggedIn: model.account?.loggedIn == true,
+            isLocalFavorite: library.favorite(series.id),
+            historyRecord: library.history(series.id)
+        )
+        let actions = SeriesCardBuilder.Actions(
+            toggleLocalFavorite: { library.toggleFavorite(series) },
+            addCloudFavorite: { model.cloudFavorite(series, add: true) },
+            removeCloudFavorite: { model.cloudFavorite(series, add: false) },
+            removeLocalHistory: { library.removeHistory(series.id) }
+        )
 
         return SeriesCard(
             cover: series.cover,
             title: series.title,
             coverHeight: Theme.posterLargeHeight,
-            subtitleLines: lines,
-            menuItems: menu,
+            subtitleLines: SeriesCardBuilder.subtitleLines(for: series, context: context),
+            menuItems: SeriesCardBuilder.menuItems(for: context, actions: actions),
             priority: index
         ) {
-            if cloud?.online == false { model.message = "该剧待上线，暂时无法播放" }
+            if context.cloudEntry?.online == false { model.message = "该剧待上线，暂时无法播放" }
             else { model.open(series, trial: model.section == .recommend) }
         }
     }
@@ -297,7 +284,7 @@ struct EpisodeView: View {
                 .background(.black)
                 .overlay { DanmakuOverlay(model: model, danmaku: model.danmaku) }
                 .overlay { PlayerTapLayer(model: model) }
-                .frame(minHeight: ContentView.detailMinHeight)
+                .frame(minWidth: ContentView.detailMinWidth, minHeight: ContentView.detailMinHeight)
             GeometryReader { _ in
                 PlayerOverlays(model: model, detail: detail, context: .window)
             }

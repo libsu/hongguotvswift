@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 评论列表的匿名只读传输层（含签名）。绝不携带账号凭据。
+// 评论列表的匿名只读传输层（含签名）绝不携带账号凭据
 import Foundation
 
 final class CommentTransport {
@@ -43,7 +43,7 @@ final class CommentTransport {
     }
 }
 
-/// URLEncoder.encode 语义：保留字母数字和 -_.*，其余按 %XX（大写）转义。
+/// URLEncoder.encode 语义：保留字母数字和 -_.*，其余按 %XX（大写）转义
 private func UrlEncode(_ s: String) -> String {
     var allowed = CharacterSet.alphanumerics
     allowed.insert(charactersIn: "-_.*")

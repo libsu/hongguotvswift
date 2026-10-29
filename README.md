@@ -110,7 +110,7 @@ bash scripts/check-dead-code.sh
 
 ## 数据和账号
 
-- 本机记录存于 `~/Library/Application Support/HongguoTVMac/library.json`；找剧/榜单的缓存存于同目录 `catalog/`（限量缓存，进入栏目先上缓存「架子」，后台刷新）。
+- 本机记录存于 `~/Library/Application Support/HongguoTV/library.json`；找剧/榜单的缓存存于同目录 `catalog/`（限量缓存，进入栏目先上缓存「架子」，后台刷新）。
 - 登录态只存于钥匙串 / Keychain，不写盘、不出现在日志或文档里。
 - 手机号、验证码、密码、会话 Cookie 等凭据不会落日志或文档。
 

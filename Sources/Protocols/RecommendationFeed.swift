@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// App 推荐流（非官网分类列表）。无账号时 account 为 nil。
+// App 推荐流（非官网分类列表） 无账号时 account 为 nil
 import Foundation
 
-/// 内存分页游标，等价 上游 RecommendationCursor。绝不序列化服务端会话。
+/// 内存分页游标，等价 上游 RecommendationCursor 绝不序列化服务端会话
 final class RecommendationCursor {
     var session: String = ""
     var offset: Int = 0
@@ -14,8 +14,8 @@ final class RecommendationCursor {
     init(session: String = "", offset: Int = 0) {
         self.session = session; self.offset = offset
     }
-    /// 设计目标：克隆当前游标生成「下一批」副本（对应 上游 RecommendationCursor）。
-    /// 当前分页直接原地推进 cursor（offset/session），未使用此副本；保留以对齐上游语义，便于未来无副作用分页。
+    /// 设计目标：克隆当前游标生成「下一批」副本（对应 上游 RecommendationCursor）
+    /// 当前分页直接原地推进 cursor（offset/session），未使用此副本；保留以对齐上游语义，便于未来无副作用分页
     func nextBatch() -> RecommendationCursor {
         let c = RecommendationCursor(session: session, offset: offset)
         c.seen = seen
@@ -89,7 +89,7 @@ final class RecommendationFeed {
                     "filter_ids": cursor.seen.sorted().joined(separator: ","), "select_items": selector,
                 ]
                 body = try! JSONSerialization.data(withJSONObject: payload)
-                // 对齐 上游：Signer 的 device = VendorConstants.device + params（含 version_name 等覆盖）。
+                // 对齐 上游：Signer 的 device = VendorConstants.device + params（含 version_name 等覆盖）
                 let mergedDevice = VendorConstants.device.merging(params) { $1 }
                 let signer = Signer(clock: clock, device: mergedDevice)
                 let queryKeys = params.filter { !["tab_type", "bottom_tab_type", "landing_bottom_tab_type", "offset", "client_req_type", "session_id"].contains($0.key) }

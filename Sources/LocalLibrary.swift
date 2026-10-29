@@ -29,7 +29,7 @@ struct SavedLibrary: Codable {
     private var writable = true
     init(file: URL? = nil) {
         self.file = file ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("HongguoTVMac/library.json")
+            .appendingPathComponent("HongguoTV/library.json")
         if FileManager.default.fileExists(atPath: self.file.path) {
             do {
                 let data = try Data(contentsOf: self.file)

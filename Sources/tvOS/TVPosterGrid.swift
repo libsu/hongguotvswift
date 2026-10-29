@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// tvOS 通用海报网格：单行横向滚动，卡片占满可用高度，Siri Remote 左右移动焦点。
-// 首页/找剧/榜单/我的/搜索共用，聚焦视觉统一。
+// tvOS 通用海报网格：单行横向滚动，卡片占满可用高度，Siri Remote 左右移动焦点
+// 首页/找剧/榜单/我的/搜索共用，聚焦视觉统一
 import SwiftUI
 
-/// 单行海报栏：横向滚动，卡片占满可用高度（cardHeight 由外部分配），Siri Remote 左右移动焦点。
+/// 单行海报栏：横向滚动，卡片占满可用高度（cardHeight 由外部分配），Siri Remote 左右移动焦点
 struct TVPosterGrid: View {
     let items: [Series]
     let section: Section
@@ -15,11 +15,11 @@ struct TVPosterGrid: View {
     var cardHeight: CGFloat
 
     var body: some View {
-        // 聚焦放大系数 = TVFX.focusScale，非聚焦封面先按该系数缩小，聚焦放大后占满。
+        // 聚焦放大系数 = TVFX.focusScale，非聚焦封面先按该系数缩小，聚焦放大后占满
         let scaleFactor = TVFX.focusScale
-        // 文字区统一 3 行（标题2行 + 集数1行 + 其他1行，约 120pt）+ 聚焦放大冗余，封面高度相应降低，避免放大超出卡片区。
+        // 文字区统一 3 行（标题2行 + 集数1行 + 其他1行，约 120pt）+ 聚焦放大冗余，封面高度相应降低，避免放大超出卡片区
         let coverHeight = max(160, (cardHeight - 140) / scaleFactor)
-        // 封面宽度按竖版海报 2:3 宽高比自适应。
+        // 封面宽度按竖版海报 2:3 宽高比自适应
         let coverWidth = coverHeight * 2 / 3
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 24) {
@@ -47,7 +47,7 @@ struct TVPosterGrid: View {
     }
 }
 
-/// 单张海报卡片：封面 + 标题 + 徽标，可选排名/热度角标。宽度按竖版海报宽高比自适应。
+/// 单张海报卡片：封面 + 标题 + 徽标，可选排名/热度角标宽度按竖版海报宽高比自适应
 struct TVPosterCard: View {
     let series: Series
     let rank: RankBadge?

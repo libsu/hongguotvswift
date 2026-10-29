@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 媒体层取流/解密的基础设施：把「预取头部 → 解析加密索引」这一步抽成可复用函数，
-// 供 ResourceLoader（懒加载）与 Model 的预热（warm）共用，避免重复取流。
+// 媒体取流/解密基础设施：把「预取头部 → 解析加密索引」抽成可复用函数，供 ResourceLoader 与预热复用。
 import Foundation
 
 enum MediaFetcher {
@@ -32,7 +31,7 @@ enum MediaFetcher {
         throw lastError
     }
 
-    /// 单次分段请求。与重试拆开，便于单元测试与避免重试逻辑污染。
+    /// 单次分段请求；与重试拆开，便于测试与避免重试逻辑污染。
     private static func rangeOnce(target: URL, start: Int64, end: Int64, knownTotal: Int64, session: URLSession) async throws -> RangeResult {
         var request = URLRequest(url: target)
         request.httpMethod = "GET"
@@ -119,14 +118,14 @@ enum MediaFetcher {
         var prefix = first.bytes
         let total = first.total
         let end = try MediaCrypto.headerEnd(prefix, total: total)
-        Log.shared.info("media prepare: headerEnd=\(end)")
+        // Log.shared.info("media prepare: headerEnd=\(end)")
         if end > prefix.count {
             let rest = try await range(url: url, start: Int64(prefix.count), end: Int64(end - 1), knownTotal: total, session: session)
             prefix += rest.bytes
         } else {
             prefix = Array(prefix.prefix(end))
         }
-        Log.shared.info("media prepare: 头部 \(prefix.count)B，解析加密索引…")
+        // Log.shared.info("media prepare: 头部 \(prefix.count)B，解析加密索引…")
         let prep = try MediaCrypto.prepare(prefix, key: key)
         guard prep.samples.allSatisfy({ $0.end <= total }) else {
             throw NSError(domain: "HongguoMedia", code: 2, userInfo: [NSLocalizedDescriptionKey: "视频样本超出资源大小"])
@@ -151,7 +150,7 @@ enum MediaFetcher {
         do {
             let raw = try await range(url: url, start: start, end: end, knownTotal: base.total, session: session)
             let clear = try MediaCrypto.decrypt(raw.bytes, start: start, key: key, prepared: base.prepared)
-            Log.shared.info("media prepare: 预取首段媒体 \(start)-\(end) 解密 \(clear.count)B")
+            // Log.shared.info("media prepare: 预取首段媒体 \(start)-\(end) 解密 \(clear.count)B")
             return Prepared(prepared: base.prepared, total: base.total, mediaPrefixStart: start, mediaPrefix: clear)
         } catch {
             Log.shared.warn("media prepare: 预取首段媒体失败，退回无前缀：\(error.localizedDescription)")
@@ -173,7 +172,7 @@ enum MediaFetcher {
 
             let fm = FileManager.default
             let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("HongguoTVMac", isDirectory: true)
+                .appendingPathComponent("HongguoTV", isDirectory: true)
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
             let stamp = Int(Date().timeIntervalSince1970 * 1000)
             let fileName = "decrypted-sample-\(stamp).mp4"

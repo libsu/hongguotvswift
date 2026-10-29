@@ -11,7 +11,7 @@ final class DetailCache {
 
     init(directory: URL? = nil, maxFiles: Int = 128, schemaVersion: Int = 1) {
         let dir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("HongguoTVMac/detail", isDirectory: true)
+            .appendingPathComponent("HongguoTV/detail", isDirectory: true)
         self.directory = dir
         self.maxFiles = maxFiles
         self.schemaVersion = schemaVersion
@@ -58,7 +58,7 @@ private struct DetailCacheEntry: Codable {
     let detail: Detail
 }
 
-// 搜索与详情打开逻辑，从 AppModel.swift 拆分而来，保持 Model 主文件聚焦于状态与生命周期
+// 搜索与详情打开逻辑，保持 Model 主文件聚焦于状态与生命周期
 extension Model {
     func search(more: Bool = false) {
         let keyword = more ? searched : query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -82,11 +82,10 @@ extension Model {
         }
     }
 
-    /// 打开某一部剧：先立即切到详情骨架（不等待网络），后台再拉真实详情并填充 采用「点击切换、后台等待」
+    /// 打开某一部剧：采用「点击切换、后台等待」
     func open(_ series: Series, trial: Bool = false, resumeEpisodeID: String? = nil, resumePosition: Double? = nil) {
-        // 1) 同步阶段：立即停旧节目、清空面板，用仅含 series 信息的 placeholder 切到详情页
+        // 同步阶段：立即停旧节目、清空面板，用仅含 series 信息的 placeholder 切到详情页
         comments.clear(); commentThread.clear(); danmaku.clear()
-        // 立即保存并停止旧节目，避免加载详情期间旧节目还在播放
         saveProgress()
         player.pause(); player.replaceCurrentItem(with: nil)
         activeLoader?.close(); activeLoader = nil
@@ -112,14 +111,12 @@ extension Model {
         }
 
         //  乐观回填：命中详情磁盘缓存时先立即渲染（集数列表立即可点），后台再刷新覆盖
-        // 缓存兜底只填充详情数据、不自动播放：待后台刷新拿到权威数据后再统一自动播放，避免对过期集数自动续播
         let cachedDetail = detailCache.load(series.id)
         if let cachedDetail {
             renderDetail(cachedDetail, trial: trial, resumeEpisodeID: resumeEpisodeID, resumePosition: resumePosition)
         }
 
         // 后台阶段：独立 Task 拉取真实详情，不占用 busy，令牌防竞态
-        // 递增代次使旧的在途详情请求失效，避免快速连点两部剧时旧响应覆盖新画面
         detailGeneration = UUID()
         let generation = detailGeneration
         detailTask?.cancel()
@@ -143,7 +140,6 @@ extension Model {
     }
 
     /// 仅填充详情数据（集数/云端续播/相关作品/提示文案），不触发自动播放
-    /// 供乐观回填的缓存兜底使用：先上屏缓存详情，权威数据到达后再由 applyDetail 统一自动播放
     func renderDetail(_ detail: Detail, trial: Bool, resumeEpisodeID: String?, resumePosition: Double?) {
         self.detail = detail
         self.preview = trial
@@ -165,12 +161,8 @@ extension Model {
     }
 
     /// 填充真实详情并触发后续：云端续播判断、相关作品拉取、以及详情就绪后的自动播放
-    /// 由 open 的同步快路径或后台 Task 调用，均运行在 MainActor
     func applyDetail(_ detail: Detail, trial: Bool, resumeEpisodeID: String?, resumePosition: Double?) {
         renderDetail(detail, trial: trial, resumeEpisodeID: resumeEpisodeID, resumePosition: resumePosition)
-
-        // 详情就绪后自动播放（试播播第一集 / 正式观看续播）
-        // 仅当用户仍停留在详情页时触发；若已返回片单，只保留详情数据不打扰播放
         guard showDetail, !stopping else { return }
         if trial { play(0, trial: true) }
         else { resume() }

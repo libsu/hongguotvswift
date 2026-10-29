@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 封面缓存与下载调度（共享层，无 AppKit / UIKit 依赖，macOS 与 tvOS 均可编译）。
-// 只管理磁盘文件并对外传递本地路径（URL），不负责解码与渲染：
-// 各平台视图拿到路径后自行加载（macOS 用 NSImage(contentsOf:)，tvOS 用平台图像类型）。
+// 封面缓存与下载调度共享层
+// 只管理磁盘文件并对外传递本地路径（URL）
 import Foundation
 
 /// 封面图磁盘缓存：只负责落地与裁剪，命中时返回本地文件路径
@@ -20,14 +19,14 @@ final class CoverCache {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
-    /// 已缓存的封面路径（不读文件内容，不判断是否可解码）
+    /// 已缓存的封面路径
     func cachedURL(for urlString: String) -> URL? {
         guard let name = Self.fileName(urlString) else { return nil }
         let url = directory.appendingPathComponent(name)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    /// 写入封面并返回落盘路径；落盘在后台串行队列执行
+    /// 写入封面 落盘在后台串行队列执行
     @discardableResult
     func store(data: Data, for urlString: String) -> URL? {
         guard let name = Self.fileName(urlString) else { return nil }
@@ -114,7 +113,7 @@ final class AsyncSemaphore: @unchecked Sendable {
     }
 }
 
-/// 封面下载调度：并发受限 + 同 URL 去重 + CDN 节点回退（p1-novel.byteimg.com）
+/// 封面下载调度：并发受限 + 同 URL 去重 + CDN 节点回退
 final class CoverDownloader: @unchecked Sendable {
     static let shared = CoverDownloader()
 
@@ -122,7 +121,6 @@ final class CoverDownloader: @unchecked Sendable {
     private let lock = NSLock()
     private var inflight: [String: Task<Data, Error>] = [:]
 
-    /// 下载并写入缓存，返回本地文件路径；不触碰图片解码
     func download(urlString: String, url: URL, priority: Int = .max) async throws -> URL {
         let key = CoverCache.fileName(urlString) ?? url.lastPathComponent
         let task: Task<Data, Error> = {

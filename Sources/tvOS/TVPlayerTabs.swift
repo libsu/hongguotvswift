@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 播放器 info tab 的 SwiftUI 内容（供 UIHostingController 承载，挂在 AVPlayerViewController 的 customInfoViewControllers）
+
 // 含「选集 / 相关作品 / 倍速 / 清晰度」四个 tab，与 UIKit 桥接层（TVPlayerView.swift）分离
 import SwiftUI
 import UIKit
@@ -7,7 +7,7 @@ import UIKit
 // MARK: - Info Tab 内容（SwiftUI，供 UIHostingController 承载）
 
 /// 「选集」tab：短剧数百上千集不适合平铺网格，改用「集数步进选择器」——
-/// 选集：步进（±1 / ±10）调整目标集，点「播放该集」才切换播放 内容高度固定，避免 info tab 抬升忽高忽低
+/// 选集：步进（±1 / ±10）调整目标集，点「播放该集」才切换播放
 struct TVEpisodeList: View {
     @ObservedObject var model: Model
     @State private var target: Int = 0
@@ -58,7 +58,6 @@ struct TVEpisodeList: View {
                         .padding(.horizontal, 4).padding(.vertical, 4)
                 }
                 .buttonStyle(.bordered)
-                // 视觉上仍靠左显示，但可聚焦命中区铺满整行
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .focused($focus, equals: .play)

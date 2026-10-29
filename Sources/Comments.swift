@@ -48,7 +48,7 @@ struct PublicSocial: Decodable {
                 guard data.seriesID == series && data.episodeID == episode else { throw URLError(.cannotParseResponse) }
                 result = data
             } catch {
-                if !Task.isCancelled && requestID == id { self.error = "评论暂时无法读取，请稍后重试。" }
+                if !Task.isCancelled && requestID == id { self.error = "评论暂时无法读取，请稍后重试" }
             }
         }
     }

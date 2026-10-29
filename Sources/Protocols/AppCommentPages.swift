@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// App 本集评论（含服务端续页游标）。只读，无写入方法。
+// App 本集评论（含服务端续页游标）只读，无写入方法
 import Foundation
 
 final class AppCommentPages {
@@ -38,7 +38,7 @@ final class AppCommentPages {
     }
 
     static func parse(result: [String: Any], series: String, episode: String, cursor: String) throws -> [String: Any] {
-        // 服务端信封为 PascalCase（Code/Message/Data），与内容接口一致；兼容旧的小写键。
+        // 服务端信封为 PascalCase（Code/Message/Data），与内容接口一致；兼容旧的小写键
         let code = result.optInt("Code", result.optInt("code", -1))
         guard code == 0 else {
             let msg = result.str("Message", result.str("message"))

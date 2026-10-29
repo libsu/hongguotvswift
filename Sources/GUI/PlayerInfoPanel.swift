@@ -2,7 +2,7 @@
 import SwiftUI
 
 /// 底部信息面板：选集网格 + 相关作品（复用 `PosterRow` + `SeriesPosterCard`）
-/// 高度由内容决定，限制在 `Theme.infoPanelMinHeight…infoPanelMaxHeight`（见 `PlayerOverlays`）
+/// 高度由内容决定，上限为「播放区实时高度 − 控件栏高度」（见 `PlayerOverlays`）
 struct PlayerInfoPanel: View {
     @ObservedObject var model: Model
     let detail: Detail
@@ -11,7 +11,7 @@ struct PlayerInfoPanel: View {
 
     var body: some View {
         let episode = model.episode ?? 0
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Theme.spacingMD) {
             header(episode: episode)
             episodeGrid(episode: episode)
             relatedSection
@@ -19,7 +19,7 @@ struct PlayerInfoPanel: View {
         .padding(Theme.overlayPadding)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
-        .padding(.horizontal, Theme.overlayPadding).padding(.bottom, Theme.spacingXL)
+        .padding(.horizontal, Theme.infoPanelSideInset).padding(.bottom, Theme.infoPanelBottomInset)
         .modifier(ControlHoverZone(model: model))
     }
 
@@ -41,28 +41,39 @@ struct PlayerInfoPanel: View {
                     .disabled(episode + 1 >= detail.episodes.count || model.busy)
             }
             .labelStyle(.iconOnly).buttonStyle(.borderless).font(.body)
-            // 分隔：把「关闭」和连续播放操作分开，避免误点退出面板
             Divider().frame(height: 16)
             Button { close() } label: { Label("关闭", systemImage: "xmark") }
                 .labelStyle(.iconOnly).buttonStyle(.borderless).font(.body)
         }
     }
 
+    /// 选集网格：最多三行、最少一行，超出滚动；激活集滚入可见区。
     private func episodeGrid(episode: Int) -> some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: cellSize.width, maximum: cellSize.width), spacing: Theme.spacingMD)], spacing: Theme.spacingMD) {
-                ForEach(detail.episodes.indices, id: \.self) { index in
-                    Button { play(index) } label: {
-                        Text("\(index + 1)")
-                            .font(.subheadline).fontWeight(episode == index ? .semibold : .regular)
-                            .frame(width: cellSize.width, height: cellSize.height)
-                            .background(episode == index ? Theme.darkSelected : Theme.darkUnselected,
-                                        in: RoundedRectangle(cornerRadius: Theme.spacingSM, style: .continuous))
-                            .foregroundStyle(episode == index ? Theme.darkSelectedForeground : Theme.darkUnselectedForeground)
-                    }.buttonStyle(.plain).disabled(model.busy)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(4)
-        }.frame(maxHeight: 200)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: cellSize.width, maximum: cellSize.width), spacing: Theme.spacingMD)], spacing: Theme.spacingMD) {
+                    ForEach(detail.episodes.indices, id: \.self) { i in
+                        let on = episode == i
+                        Button { play(i) } label: {
+                            Text("\(i + 1)")
+                                .font(.subheadline).fontWeight(on ? .semibold : .regular)
+                                .frame(width: cellSize.width, height: cellSize.height)
+                                .background(on ? Theme.darkSelected : Theme.darkUnselected,
+                                            in: RoundedRectangle(cornerRadius: Theme.spacingSM, style: .continuous))
+                                .foregroundStyle(on ? Theme.darkSelectedForeground : Theme.darkUnselectedForeground)
+                        }.buttonStyle(.plain).disabled(model.busy).id(i)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(4)
+            }
+            .onAppear { proxy.scrollTo(episode, anchor: .center) }
+            .onChange(of: episode) { i in proxy.scrollTo(i, anchor: .center) }
+        }
+        .frame(minHeight: episodeRowHeight(1), maxHeight: episodeRowHeight(3))
+    }
+
+    /// 选集网格按行数折算的高度：单行 = 格高，多行再加行间距；上下各 4pt 内边距。
+    private func episodeRowHeight(_ rows: Int) -> CGFloat {
+        cellSize.height * CGFloat(rows) + Theme.spacingMD * CGFloat(max(0, rows - 1)) + 4 * 2
     }
 
     @ViewBuilder

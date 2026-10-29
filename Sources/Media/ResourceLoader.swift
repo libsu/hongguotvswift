@@ -1,37 +1,31 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 替代 RemoteVideo + HttpServer 的媒体层：AVAssetResourceLoaderDelegate 直接取流 + 解密，
-// 回喂 AVPlayer。每个请求带完整 dataRequest（offset/length/是否 Range），
-// 按 offset/length 拉取加密数据 → MediaCrypto.decrypt → respond。
+// 媒体层：AVAssetResourceLoaderDelegate 直接取流 + 解密后回喂 AVPlayer（替代 RemoteVideo + 本地 HttpServer）。
 import Foundation
 import AVFoundation
 
-/// 供播放器使用的自定义 scheme；Info.plist 无需额外声明即可用。
+/// 供播放器使用的自定义 scheme（Info.plist 无需声明）。
 enum MediaScheme {
     static let name = "hongguo"
-    /// 构造一个指向某集的自定义 scheme URL。
     static func url(episodeID: String) -> URL {
         var components = URLComponents()
         components.scheme = name
         components.host = "episode"
         components.path = "/" + episodeID
         guard let url = components.url else {
-            // 理论上不会走到这里（scheme/host/path 均合法）。
+            // 理论上不可达（scheme/host/path 均合法）。
             return URL(string: "\(name)://episode/\(episodeID)")!
         }
         return url
     }
 }
 
-/// 一个播放会话的资源加载委托，负责：预取头部 → 解析加密索引 → 按需取流 + 逐段解密。
-/// 生命周期与单个 AVPlayerItem 绑定；切集/切清晰度时由 Model 作废旧会话。
+/// 单个 `AVPlayerItem` 的加载委托，生命周期与 item 绑定；切集/切清晰度时由 Model 作废旧会话。
 final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
-    /// 单个加密渲染流的取流信息。
     struct Stream {
         let url: String
         let key: [UInt8]?
     }
 
-    /// 取流信息 + 实际清晰度。
     struct StreamAndQuality {
         let url: String
         let key: [UInt8]?
@@ -45,13 +39,13 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     private let stateLock = NSLock()
     private var requestID = 0
 
-    // 上游 RemoteVideo 状态。由独立串行队列 + NSLock 保护，避免与 MainActor 上的 UI/网络任务
-    // （如相关作品请求）竞争，导致 AVPlayer 的探测请求被延迟而超时。
+    // 由独立串行队列 + NSLock 保护：若在 MainActor 上处理，UI/相关作品请求会占住主线程，
+    // 导致 AVPlayer 的探测请求被延迟甚至超时。
     private var prepared: MediaCrypto.Prepared?
     private var total: Int64 = 0
-    /// 预热时预先解析好的索引，避免 play 再次取流。首次取流拷贝到 prepared 后即置 nil 释放，避免双份持有。
+    /// 预热时已解析的索引，首次取流拷到 prepared 后置 nil，避免双份持有。
     private var seed: MediaFetcher.Prepared?
-    /// 预取的「开头第一段已解密媒体数据」（起始偏移 + 字节），切集命中时直接回喂。
+    /// 预取的首段已解密媒体数据（起始偏移 + 字节），切集命中时直接回喂。
     private var mediaPrefixStart: Int64?
     private var mediaPrefix: [UInt8] = []
 
@@ -81,7 +75,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         requestID += 1
         let id = requestID
         Log.shared.info("media \(episodeID) request#\(id) offset=\(loadingRequest.dataRequest?.requestedOffset ?? -1) len=\(loadingRequest.dataRequest?.requestedLength ?? -1) all=\(loadingRequest.dataRequest?.requestsAllDataToEndOfResource ?? false) info=\(loadingRequest.contentInformationRequest != nil) data=\(loadingRequest.dataRequest != nil)")
-        // 在独立串行队列上启动处理，避免依赖 MainActor 调度（MainActor 被 UI/相关作品请求占用时会导致延迟）。
+        // 独立串行队列，不依赖 MainActor（后者可能被 UI/相关作品请求占住）。
         queue.async { [weak self] in
             guard let self else { return }
             Task {
@@ -98,7 +92,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
-        // AVPlayer 取消的请求无需特别清理；下层 URLSession data task 会自然结束。
+        // 无需清理：下层 URLSession 任务自然结束。
     }
 
     // MARK: - 处理
@@ -117,7 +111,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         if currentPrepared() == nil {
             if let seed {
                 storePrepared(seed.prepared, total: seed.total)
-                // 索引已拷贝到 prepared，释放 seed 大字段（header/samples/mediaPrefix），避免双份持有。
+                // 索引已拷入 prepared，释放 seed 的大字段避免双份持有。
                 self.seed = nil
             } else {
                 try await prepare()
@@ -128,8 +122,8 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         }
 
         if let info = request.contentInformationRequest {
-            // contentType 必须是 AVFoundation 认识的 UTI（MP4 为 public.mpeg-4，属于 AVURLAsset.audiovisualTypes()），
-            // 而非 MIME 类型。错误的值会让 AVURLAsset 判定为不受支持的媒体类型。
+            // contentType 必须是 AVFoundation 认识的 UTI（MP4 为 public.mpeg-4）而非 MIME；
+            // 错传 MIME 会让 AVURLAsset 判定为不支持。
             let allowed = info.allowedContentTypes ?? []
             let chosen: String
             if allowed.contains("public.mpeg-4") { chosen = "public.mpeg-4" }
@@ -158,17 +152,16 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             return
         }
         Log.shared.info("media \(episodeID) range \(start)-\(end) (\(end - start + 1)B)")
-        // 关键优化：请求完全落在已缓存的解密头（ftyp+moov）范围内时，直接从内存取，
-        // 不再发 HTTP 请求。AVPlayer 的首次 2 字节探测会命中这里，瞬时响应，避免因网络延迟导致探测超时。
+        // 完全命中已解密的头（ftyp+moov）时直接内存回喂：AVPlayer 首次 2 字节探测会命中，
+        // 避免网络延迟导致探测超时。
         if end < Int64(prepared.header.count) {
             let clear = Array(prepared.header[Int(start)...Int(end)])
             dataRequest.respond(with: Data(clear))
             request.finishLoading()
-            Log.shared.info("media \(episodeID) range done: 回喂 \(clear.count)B")
+            // Log.shared.info("media \(episodeID) range done: 回喂 \(clear.count)B")
             return
         }
-        // 命中预取的「开头第一段媒体数据」：请求区间完全落在已预取范围内时，直接从内存回喂，
-        // 不发网络请求，消除切集时的首包延迟。
+        // 命中预取的首段媒体数据时直接回喂，消除切集首包延迟。
         if let mpStart = mediaPrefixStart, !mediaPrefix.isEmpty,
            start >= mpStart, end < mpStart + Int64(mediaPrefix.count) {
             let lo = Int(start - mpStart), hi = Int(end - mpStart)
@@ -178,7 +171,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             Log.shared.info("media \(episodeID) range done: 回喂预取段 \(clear.count)B")
             return
         }
-        // 跨 header 边界：前半段缓存在内存（ftyp+moov），后半段远程取流 + 解密。
+        // 跨 header 边界：前半段内存回喂，后半段远程取流 + 解密。
         let remoteStart: Int64
         if start < Int64(prepared.header.count) {
             let headerPart = Array(prepared.header[Int(start)..<prepared.header.count])
@@ -187,27 +180,23 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         } else {
             remoteStart = start
         }
-        // 远程取流 + 解密：MediaFetcher.range 有单段 < 8MB 的硬限制，而 AVPlayer 在
-        // requestsAllDataToEndOfResource 时可能一次性请求远超该上限的区间（甚至整个文件）。
-        // 这里改为「有界分块 respond」：每 4MB 解密后立即回喂，不一次性累积整段到内存，
-        // 避免对超大文件 reserveCapacity/append 导致 OOM 崩溃。剩余区间由 AVPlayer 继续请求。
+        // MediaFetcher.range 单段硬限 8MB，而 requestsAllDataToEndOfResource 可能请求整个文件；
+        // 这里按 4MB 有界分块回喂，避免超大文件 OOM。
         let fedTo = await fetchRangeDecrypted(from: remoteStart, to: end, prepared: prepared, total: total) { decrypted in
             dataRequest.respond(with: Data(decrypted))
         }
-        // 若一个字节都没喂成功（如 URL 已失效/CND 内容漂移），以错误结束，让 AVPlayer 感知失败
-        // 并停止无谓地重复请求同一失效范围；否则按已回喂范围正常结束，剩余由 AVPlayer 续传。
+        // 一个字节都没喂成功（URL 失效/CDN 内容漂移）时抛错，让 AVPlayer 停止重试同一失效范围；
+        // 否则正常结束，剩余由 AVPlayer 续传。
         if fedTo < remoteStart { throw NSError(domain: "HongguoMedia", code: 12, userInfo: [NSLocalizedDescriptionKey: "当前视频源不可用，请切换清晰度或重试"]) }
         request.finishLoading()
         Log.shared.info("media \(episodeID) range done: 回喂 \(fedTo - remoteStart + 1)B\(fedTo < end ? "（未到末尾，后续续传）" : "")")
     }
 
-    /// 远程取流 + 逐段解密，每段解密后立即回调（通常为 respond），避免整段缓存。
-    /// MediaFetcher.range 的单段上限（<8MB）低于 AVPlayer 的大范围请求，这里按固定步长切分，
-    /// 每段以其在文件中的绝对 offset 作为 decrypt 的 start，保证 CTR 计数器正确。
-    /// 返回最后一个已成功回喂块的末尾偏移（可能 < end），调用方据此结束本次 loading request。
+    /// 远程取流 + 逐段解密，每段立即回调不累积；每段以文件绝对 offset 作 start，保证 CTR 计数器正确。
+    /// 返回最后成功回喂块的末尾偏移（可能 < end）。
     @discardableResult
     private func fetchRangeDecrypted(from start: Int64, to end: Int64, prepared: MediaCrypto.Prepared, total: Int64, onChunk: ([UInt8]) -> Void) async -> Int64 {
-        // 单段步长（略低于 8MB 上限，留余量）：4MB。
+        // 4MB，低于 MediaFetcher.range 的 8MB 单段上限。
         let step: Int64 = 4 * 1024 * 1024
         var cursor = start
         var fedTo = start - 1
@@ -219,7 +208,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
                 onChunk(decrypted)
                 fedTo = segEnd
             } catch {
-                // 该块取流/解密失败：停止续喂，让本次请求到此为止，剩余由 AVPlayer 后续重发。
+                // 该块失败即停止续喂，剩余由 AVPlayer 后续重发。
                 Log.shared.warn("media \(episodeID) range 分段失败 @\(cursor)-\(segEnd)：\(error.localizedDescription)")
                 break
             }
@@ -235,7 +224,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     }
 
     func close() {
-        // 释放大字段（索引 + 预取段 + seed），切集/关闭时显式清空，避免冗余副本残留。
+        // 显式释放大字段，避免冗余副本残留。
         stateLock.lock()
         prepared = nil
         total = 0

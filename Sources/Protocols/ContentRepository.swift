@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 站点协议：搜索/发现/榜单/详情/相关/取流。直连官方 HTTPS。
-// 依赖 Crypto 层的 Signer / Bytes / MediaCrypto（已通过字节级对齐）。
+// 站点协议：搜索/发现/榜单/详情/相关/取流，直连官方 HTTPS。
 import Foundation
 
 final class ContentRepository {
@@ -11,7 +10,6 @@ final class ContentRepository {
     private let playerDevices: PlayerDeviceSource
 
     private var relatedCache: [String: [RelatedWork]] = [:]
-    /// 详情页内存缓存：避免反复进入同一剧集时重复请求详情页。
     private var detailCache: [String: (series: Series, episodes: [String])] = [:]
 
     init(http: HongguoHTTP = HongguoHTTP(), clock: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }, defaults: UserDefaults = .standard) {
@@ -23,8 +21,8 @@ final class ContentRepository {
 
     // MARK: - 基础 HTTP
 
-    /// 默认不自动重试：HTML 页面（首页/找剧/榜单）由 CDN 提供，504 等瞬态错误重试收益低且拖慢上屏，
-    /// 快速失败后由 CatalogCache/用户手动重试兜底。仅幂等的 JSON 接口（如 searchAll）显式传入 retryTransient=true。
+    /// 默认不重试：HTML 页面由 CDN 提供，504 等瞬态错误重试收益低且拖慢上屏，
+    /// 快速失败交给 CatalogCache/用户重试；仅幂等的 JSON 接口（如 searchAll）才传 retryTransient。
     private func text(_ url: String, signed: Signer.Request? = nil, retryTransient: Bool = false) async throws -> String {
         var headers: [String: String] = ["User-Agent": VendorConstants.VIDEO_UA, "Accept-Language": "zh-CN,zh;q=0.9"]
         var body: Data? = nil
@@ -47,7 +45,7 @@ final class ContentRepository {
 
     // MARK: - 卡片解析
 
-    /// 上游: card(item) —— 归一化卡片字段。
+    /// 上游 card(item)。
     private func card(_ item: [String: Any]) -> Series {
         let o = item["video_data"] as? [String: Any] ?? item
         let count = o.optInt("episode_cnt", (o["series_episode_info"] as? [String: Any])?.optInt("episode_cnt", 0) ?? 0)
@@ -83,7 +81,7 @@ final class ContentRepository {
 
     // MARK: - 搜索
 
-    /// 上游: searchAll —— 官网 JSON 跨分类搜索端点。
+    /// 上游 searchAll：官网 JSON 跨分类搜索端点（幂等，故允许重试）。
     func searchAll(keyword: String, page: Int) async throws -> CatalogPage {
         guard !keyword.isEmpty && keyword.count <= 80 && page >= 1 && page <= 100 else {
             throw ContentError("请检查搜索条件")
@@ -106,7 +104,7 @@ final class ContentRepository {
 
     // MARK: - 发现（找剧）
 
-    /// 上游 ContentRepository.home：官网「分类」页（综合推荐，网站 JSON 端点）。
+    /// 上游 ContentRepository.home：官网「分类」页。
     func home(page: Int = 1) async throws -> CatalogPage {
         guard page >= 1 && page <= 100 else { throw ContentError("页数越界") }
         let data = try await router("\(site)/category?tab=1&sort_type=1" + (page > 1 ? "&page=\(page)" : ""))
@@ -176,8 +174,7 @@ final class ContentRepository {
         if meta.totalPages > 5 { throw ContentError("榜单页数已变化，请稍后重试") }
         var rows = first.items
         var positions = meta.positions
-        // 后续页并发请求（第 1 页已知总页数后再并行拉取 2..totalPages），
-        // 避免串行逐页请求导致榜单加载缓慢。
+        // 第 1 页拿到总页数后并行拉取剩余页，避免串行逐页导致榜单加载缓慢。
         if meta.totalPages > 1 {
             let laterPages = try await withThrowingTaskGroup(of: CatalogPage.self) { group in
                 for page in 2...meta.totalPages {
@@ -204,7 +201,7 @@ final class ContentRepository {
     func detail(id: String) async throws -> (series: Series, episodes: [String]) {
         guard isValidNumericId(id) else { throw ContentError("剧集 id 异常") }
         if let cached = detailCache[id] { return cached }
-        // 详情页异常点较多（页面较慢/偶尔 504），启用跨态重试，避免一次超时就直接失败。
+        // 详情页偶发 504，跨态重试避免一次超时即失败。
         let o = try await router("\(site)/detail?series_id=\(id)", retryTransient: true)
         guard let detailPage = o.obj("detail_page"), let seriesDetail = detailPage.obj("seriesDetail") else {
             throw ContentError("剧集详情暂不可用")
@@ -259,8 +256,8 @@ final class ContentRepository {
 
     func stream(id: String, maxQuality: Int = 1080) async throws -> StreamInfo {
         let ladder = try await streamLadder(id: id)
-        // 对齐 上游 openStream：先用 CodecCapabilities 过滤掉当前 Mac 无法解码的编码族（AV1/bytevc2），
-        // 再按「清晰度优先、同清晰度 HEVC > AVC」择优（节省流量、加快响应）。
+        // 对齐上游 openStream：先过滤当前设备无法解码的编码族（AV1/bytevc2），
+        // 再按「清晰度优先、同清晰度 HEVC > AVC」择优（省流量、快响应）
         guard let selected = ladder.select(maxQuality: maxQuality, supported: CodecCapabilities.supports) else {
             throw ContentError("没有电视可播放的清晰度，请稍后再试或选择其他剧集")
         }
@@ -270,13 +267,13 @@ final class ContentRepository {
         return info
     }
 
-    /// 播放设备被上游拒绝（110001/10001/10002）。内部信号：丢弃旧设备并重新注册一次。
+    /// 播放设备被上游拒绝（110001/10001/10002）的内部信号：丢弃旧设备并重注册一次。
     private struct PlayerDeviceRejected: Error {}
 
     func streamLadder(id: String) async throws -> StreamLadder {
         guard isValidNumericId(id) else { throw ContentError("剧集 id 异常") }
         var lastError: Error?
-        // 注册设备 + 取流；设备被拒绝时换一台重试一次（对齐上游 fqapp 的设备轮换）。
+        // 设备被拒绝时换一台重试一次（对齐上游 fqapp 的设备轮换）。
         for attempt in 0..<2 {
             do {
                 return try await registeredStreamLadder(id: id)
@@ -290,7 +287,7 @@ final class ContentRepository {
                 break
             }
         }
-        // 兜底：内置旧设备走同一接口，部分环境仍可能可用（当前线上多数返回 110001）。
+        // 兜底：内置旧设备。线上多数已返回 110001，但部分环境仍可能可用。
         do {
             return try await fetchLadder(id: id, device: VendorConstants.device)
         } catch {
@@ -311,7 +308,7 @@ final class ContentRepository {
 
     private func fetchLadder(id: String, device: [String: String]) async throws -> StreamLadder {
         let payload = "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":3,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"\(id)\"]}}"
-        // 等价域名轮换：上游对单域名偶发「HTTP 200 但 body 为空 / {}」的软失败。优先使用实测最稳定的 b 节点。
+        // 域名轮换：上游对单域名偶发「HTTP 200 但 body 为空/{}」的软失败，b 节点实测最稳，置首。
         let streamHosts = [
             "api5-normal-sinfonlineb.fqnovel.com",
             "api5-normal-sinfonlinea.fqnovel.com",
@@ -372,7 +369,7 @@ final class ContentRepository {
         code == 10001 || code == 10002 || code == 110001
     }
 
-    /// 解析响应里的所有 video_model：既支持直接档位（video_list），也兼容 fallback_api 二次请求。
+    /// 解析响应里的 video_model：既支持直接档位（video_list），也兼容 fallback_api 二次请求。
     private func ladder(from data: [String: Any]) async throws -> StreamLadder? {
         var models: [[String: Any]] = []
         if let model = Self.model(from: data) { models.append(model) }
@@ -386,8 +383,7 @@ final class ContentRepository {
             let seed = Self.lenientBase64(model.str("key_seed"))
             renditions += Self.renditions(from: model["video_list"], seed: seed, seen: &seen)
         }
-        // 新接口通常在 video_model.video_list 里直接给出全部档位；只有拿不到直接档位时才走 fallback_api，
-        // 避免为一个可能证书/网络异常的备用域名多等一轮。
+        // 拿不到直接档位才走 fallback_api，避免为可能异常的备用域名多等一轮。
         if renditions.isEmpty {
             for model in models {
                 let fallback = Self.fallbackApi(model)
@@ -439,7 +435,7 @@ final class ContentRepository {
         return out
     }
 
-    /// 单档解析：兼容旧对象结构（vheight/codec_type/spade_a 在顶层）与新数组结构（视频信息在 video_meta/encrypt_info 内）。
+    /// 兼容旧结构（vheight/codec_type 在顶层）与新结构（视频信息在 video_meta/encrypt_info 内）。
     private static func rendition(from row: [String: Any], key: String?, seed: [UInt8]?) -> Rendition? {
         let meta = row.obj("video_meta") ?? [:]
         let encrypt = row.obj("encrypt_info") ?? [:]
@@ -452,7 +448,7 @@ final class ContentRepository {
         if url.isEmpty { url = row.str("play_url") }
         guard !url.isEmpty else { return nil }
 
-        // 少数旧源把 URL 整体 base64 编码；解出后再按普通 URL 处理。
+        // 少数旧源把 URL 整体 base64 编码，解出后再按普通 URL 处理。
         if !url.hasPrefix("http"), let data = lenientBase64(url), data.count > 4,
            String(decoding: data.prefix(4), as: UTF8.self) == "http" {
             url = String(decoding: data, as: UTF8.self)
@@ -515,7 +511,7 @@ final class ContentRepository {
 
     // MARK: - 解析器（静态）
 
-    /// 上游: extractRouter(html) —— 从页面 HTML 中取出 `_ROUTER_DATA` 后的首段 JSON。
+    /// 上游 extractRouter(html)：取出 `_ROUTER_DATA` 后的首段 JSON。
     static func extractRouter(_ html: String) throws -> [String: Any] {
         guard let marker = html.range(of: "_ROUTER_DATA") else { throw ContentError("页面没有内容数据") }
         guard let first = html[marker.upperBound...].firstIndex(of: "{") else { throw ContentError("页面数据格式错误") }
@@ -546,7 +542,7 @@ final class ContentRepository {
         throw ContentError("页面数据不完整")
     }
 
-    /// 上游: qualityNumber(value)
+    /// 上游 qualityNumber(value)。
     static func qualityNumber(_ value: String) -> Int {
         let patterns = ["2160", "1440", "1080", "720", "576", "540", "480", "360"]
         for p in patterns {
@@ -557,7 +553,7 @@ final class ContentRepository {
         return Int(value) ?? 0
     }
 
-    /// 由视频 height（像素）反推清晰度档位；非标准高度返回 0（交由 qualityNumber 兜底）。
+    /// 由 height 反推清晰度档位；非标准高度返回 0，交由 qualityNumber 兜底。
     static func qualityFromHeight(_ height: Int?) -> Int {
         guard let height else { return 0 }
         switch height {

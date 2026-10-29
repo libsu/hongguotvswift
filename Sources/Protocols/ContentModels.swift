@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// UI 侧已有 Codable 的 Series/Topic/RankPosition 等；此文件类型仅服务取数层，结果再映射回 UI 模型。
+// UI 侧已有 Codable 的 Series/Topic/RankPosition 等；此文件类型仅服务取数层，结果再映射回 UI 模型
 import Foundation
 
 
-/// 一集可播放的某种清晰度。
+/// 一集可播放的某种清晰度
 struct Rendition {
     let quality: Int
     let codec: String
@@ -12,24 +12,24 @@ struct Rendition {
     let url: String
     let key: [UInt8]?
 
-    /// 死代码：映射为 UI 侧 StreamInfo，当前未接入（取流直接返回 StreamInfo）。
+    /// 死代码：映射为 UI 侧 StreamInfo，当前未接入（取流直接返回 StreamInfo）
     func toStreamInfo() -> StreamInfo {
         StreamInfo(url: url, key: key, quality: quality > 0 ? "\(quality)P" : "自动")
     }
 }
 
-/// 某一集全部可选清晰度，按清晰度 + 编码择优。
+/// 某一集全部可选清晰度，按清晰度 + 编码择优
 struct StreamLadder {
     let renditions: [Rendition]
 
-    /// 同清晰度下编码优先级：HEVC > AVC > 其它。
+    /// 同清晰度下编码优先级：HEVC > AVC > 其它
     private func codecRank(_ codec: String) -> Int {
         if CodecCapabilities.isHEVC(codec) { return 2 }
         if CodecCapabilities.isAVC(codec) { return 1 }
         return 0   // AV1 / 未知
     }
 
-    /// 清晰度优先，同清晰度 HEVC > AVC > 其它。
+    /// 清晰度优先，同清晰度 HEVC > AVC > 其它
     private func isBetter(_ a: Rendition, than b: Rendition) -> Bool {
         if a.quality != b.quality { return a.quality > b.quality }
         return codecRank(a.codec) > codecRank(b.codec)
@@ -38,7 +38,7 @@ struct StreamLadder {
     func select(maxQuality: Int, supported: (Rendition) -> Bool = { _ in true }) -> Rendition? {
         let pool = renditions.filter(supported)
         let effective = pool.isEmpty ? renditions : pool
-        // maxQuality <= 0 表示自动，选源提供的最高档。
+        // maxQuality <= 0 表示自动，选源提供的最高档
         let within = effective.filter { $0.quality >= 1 && (maxQuality <= 0 || $0.quality <= maxQuality) }
         if let best = within.max(by: { isBetter($1, than: $0) }) { return best }
         let autoOrLower = effective.filter { $0.quality <= 0 }
@@ -46,7 +46,7 @@ struct StreamLadder {
         return effective.min(by: { isBetter($1, than: $0) })
     }
 
-    /// 死代码：供逐档降级验证，当前只用 select() 一步到位，未启用。
+    /// 死代码：供逐档降级验证，当前只用 select() 一步到位，未启用
     func playbackOrder(maxQuality: Int, supported: (Rendition) -> Bool = { _ in true }) -> [Rendition] {
         guard let pick = select(maxQuality: maxQuality, supported: supported) else { return [] }
         let alternates = renditions.filter { $0.url != pick.url && $0.quality <= pick.quality }
@@ -74,7 +74,7 @@ enum DramaCategory: String {
         case .ai: return "ai-drama"
         }
     }
-    /// 死代码：由路由串反解枚举，当前前端直接按 rawValue 匹配。
+    /// 死代码：由路由串反解枚举，当前前端直接按 rawValue 匹配
     init?(fromRoute route: String) {
         switch route {
         case "real-drama": self = .real
@@ -97,7 +97,7 @@ enum RankBoard: String {
         case .ai: return "hot-ai-drama"
         }
     }
-    /// 死代码：当前未接入，接口差异化加载时用。
+    /// 死代码：当前未接入，接口差异化加载时用
     var loader: String {
         switch self {
         case .comic: return "comic_rank"
@@ -105,7 +105,7 @@ enum RankBoard: String {
         case .ai: return "ai_rank"
         }
     }
-    /// 死代码：当前无读取方。
+    /// 死代码：当前无读取方
     var key: String {
         switch self {
         case .comic: return "comic"
@@ -139,7 +139,7 @@ struct DramaTopic {
     let label: String
 }
 
-/// 中间结果的合集。
+/// 中间结果的合集
 struct CatalogPage {
     let items: [Series]
     let hasMore: Bool
@@ -165,7 +165,7 @@ struct RankSnapshot {
     let items: [Series]
     let ranking: ComicRanking
 
-    // 从 item.tags 切分标签 token 作为榜单题材。
+    // 从 item.tags 切分标签 token 作为榜单题材
     var topics: [DramaTopic] {
         var counts: [String: Int] = [:]
         for item in items {

@@ -61,6 +61,13 @@ enum SessionKeychain {
 }
 
 extension Model {
+    /// 进入「我的」页时惰性恢复会话：只在首次进入且未登录、未在登录流程时读钥匙串。
+    func restoreAccountIfNeeded() {
+        guard !sessionRecovered, account == nil, !accountBusy else { return }
+        sessionRecovered = true
+        Task { await restoreAccount() }
+    }
+
     func restoreAccount() async {
         let generation = accountGeneration
         do {

@@ -45,7 +45,7 @@ final class Log {
         }
         let fm = FileManager.default
         let dir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("HongguoTVMac", isDirectory: true)
+            .appendingPathComponent("HongguoTV", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         self.fileURL = dir.appendingPathComponent("debug.log")
         let df = DateFormatter()

@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 关键差异：上游 Byte 是有符号(-128..127)，Swift UInt8 无符号(0..255)。
-// 因此所有「取无符号字节值」的地方统一用 [UInt8] 的 Int 值(0..255)表达，
-// 与 上游 的 Byte.u() (= toInt() and 255) 对齐。
+// 上游 Byte 有符号(-128..127)，Swift UInt8 无符号(0..255)：所有取无符号字节值之处统一用 Int(0..255)，
+// 与上游 Byte.u() (= toInt() and 255) 对齐。
 import Foundation
 import CommonCrypto
 
 // MARK: - 十六进制
 
-/// 上游: hex(String) -> ByteArray（两位一组转字节）
+/// 上游 hex(String) -> ByteArray。
 func hexBytes(_ value: String) -> [UInt8] {
     precondition(value.count % 2 == 0, "hex 长度必须为偶数")
     var out: [UInt8] = []
@@ -22,16 +21,16 @@ func hexBytes(_ value: String) -> [UInt8] {
     return out
 }
 
-/// 上游: ByteArray.hex() -> 小写十六进制字符串
+/// 上游 ByteArray.hex()：小写。
 func hexString(_ data: [UInt8]) -> String {
     data.map { String(format: "%02x", $0) }.joined()
 }
 
-// MARK: - Base64（与 上游 手写一致，支持 url-safe 输入、等号填充）
+// MARK: - Base64（与上游手写实现一致：容忍 url-safe 输入与缺失填充）
 
 private let b64Alphabet: [Character] = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
 
-/// 上游: decode64(s: String) —— 手写 base64 解码（容忍 -_ 且容忍缺少填充）
+/// 上游 decode64：容忍 -_ 且容忍缺少填充。
 func decode64(_ s: String) -> [UInt8] {
     let normalized = s.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
     precondition(normalized.count % 4 != 1, "Invalid Base64 length")
@@ -52,7 +51,7 @@ func decode64(_ s: String) -> [UInt8] {
     return out
 }
 
-/// 上游: ByteArray.base64() —— 手写 base64 编码（标准字母表 + 等号填充）
+/// 上游 ByteArray.base64()：标准字母表 + 等号填充。
 func base64Encode(_ data: [UInt8]) -> String {
     var sb = ""
     var i = 0
@@ -80,31 +79,27 @@ func base64Encode(_ data: [UInt8]) -> String {
     return sb
 }
 
-// MARK: - 字节序
+// MARK: - 字节序（与上游 le/be 对应）
 
-/// 上游: le32(n) —— 小端 4 字节
 func le32(_ n: Int32) -> [UInt8] {
     let v = UInt32(bitPattern: n)
     return [UInt8(v & 0xff), UInt8((v >> 8) & 0xff), UInt8((v >> 16) & 0xff), UInt8((v >> 24) & 0xff)]
 }
-/// 上游: le32(n: Int) 重载 —— 接收 Int
 func le32(_ n: Int) -> [UInt8] { le32(Int32(truncatingIfNeeded: n)) }
 
-/// 上游: be32(n) —— 大端 4 字节
 func be32(_ n: Int32) -> [UInt8] {
     let v = UInt32(bitPattern: n)
     return [UInt8((v >> 24) & 0xff), UInt8((v >> 16) & 0xff), UInt8((v >> 8) & 0xff), UInt8(v & 0xff)]
 }
 func be32(_ n: Int) -> [UInt8] { be32(Int32(truncatingIfNeeded: n)) }
 
-/// 上游: le64(n) —— 小端 8 字节
 func le64(_ n: Int64) -> [UInt8] {
     let v = UInt64(bitPattern: n)
     return (0..<8).map { UInt8((v >> ($0 * 8)) & 0xff) }
 }
 func le64(_ n: Int) -> [UInt8] { le64(Int64(n)) }
 
-// MARK: - 读整数（ByteArray.i32/u32/i64，默认大端）
+// MARK: - 读整数（默认大端）
 
 func readI32(_ data: [UInt8], _ at: Int, little: Bool = false) -> Int32 {
     if little {
@@ -118,12 +113,11 @@ func readI32(_ data: [UInt8], _ at: Int, little: Bool = false) -> Int32 {
     }
 }
 
-/// 上游: u32(at) = i32(at).toLong() and 0xffffffffL
+/// 上游 u32(at)：按无符号重解释 i32。
 func readU32(_ data: [UInt8], _ at: Int) -> UInt32 {
     UInt32(bitPattern: readI32(data, at))
 }
 
-/// 上游: i64(at, little) —— 大端为默认
 func readI64(_ data: [UInt8], _ at: Int, little: Bool = false) -> Int64 {
     var v: UInt64 = 0
     if little {
@@ -136,14 +130,13 @@ func readI64(_ data: [UInt8], _ at: Int, little: Bool = false) -> Int64 {
 
 // MARK: - 摘要 / 加密
 
-/// 上游: digest(algorithm, value) —— 支持 SHA-256/512、MD5
+/// 上游 digest(algorithm, value)：SHA-256/512、MD5。
 func digest(_ algorithm: String, _ value: [UInt8]) -> [UInt8] {
     var out = [UInt8](repeating: 0, count: digestLength(algorithm))
     var len = 0
     value.withUnsafeBufferPointer { ptr in
         if algorithm == "MD5" {
-            // 协议兼容需要 MD5（上游弹幕/评论签名强制），无法替换为 SHA-256。
-            // CommonCrypto 仍将其标记为弃用，此处为有意为之。
+            // 上游弹幕/评论签名强制 MD5，无法换 SHA-256；CommonCrypto 的弃用标记在此是有意为之。
             CC_MD5(ptr.baseAddress, CC_LONG(value.count), &out)
             len = 16
         } else if algorithm == "SHA-256" {
@@ -166,10 +159,10 @@ private func digestLength(_ algorithm: String) -> Int {
     }
 }
 
-/// 上游: sm3(value) —— 见 SM3.swift
+/// 上游 sm3(value)，实现见 SM3.swift。
 func sm3(_ value: [UInt8]) -> [UInt8] { SM3.digest(value) }
 
-/// 上游: aes("CBC", key, iv, data) —— AES/CBC/NoPadding 解密
+/// 上游 aes("CBC", key, iv, data)：AES/CBC/NoPadding 解密。
 func aesDecrypt(_ key: [UInt8], _ iv: [UInt8], _ data: [UInt8]) -> [UInt8] {
     var out = [UInt8](repeating: 0, count: data.count)
     var outLen = 0
@@ -185,7 +178,7 @@ func aesDecrypt(_ key: [UInt8], _ iv: [UInt8], _ data: [UInt8]) -> [UInt8] {
     return Array(out.prefix(outLen))
 }
 
-/// AES/CBC/NoPadding 加密（供 DeviceRegister.ttEncrypt 用）。输入须为 16 字节整数倍。
+/// AES/CBC/NoPadding 加密（DeviceRegister.ttEncrypt 用）。输入须为 16 字节整数倍。
 func aesEncryptCBC(_ key: [UInt8], _ iv: [UInt8], _ data: [UInt8]) -> [UInt8] {
     precondition(data.count % 16 == 0, "AES/CBC/NoPadding 输入须为 16 字节整数倍")
     var out = [UInt8](repeating: 0, count: data.count)
@@ -202,7 +195,7 @@ func aesEncryptCBC(_ key: [UInt8], _ iv: [UInt8], _ data: [UInt8]) -> [UInt8] {
     return Array(out.prefix(outLen))
 }
 
-/// AES-ECB 单块加密（块长 16 字节），供 CTR 模式产生 keystream。
+/// AES-ECB 单块加密，供 CTR 产生 keystream。
 func aesECBEncryptBlock(_ key: [UInt8], _ block: [UInt8]) -> [UInt8] {
     precondition(block.count == 16, "AES 块必须 16 字节")
     var out = [UInt8](repeating: 0, count: 16)
@@ -217,9 +210,7 @@ func aesECBEncryptBlock(_ key: [UInt8], _ block: [UInt8]) -> [UInt8] {
     return out
 }
 
-/// AES-CTR 解密/加密（CTR 模式，加密解密同构）。
-/// counter 为 16 字节初始计数器块，按大端 128 位无符号逐块 +1 产生 keystream，与 data 异或。
-/// 返回与 data 等长的结果。
+/// AES-CTR（加解密同构）：16 字节初始计数器按大端 128 位逐块 +1 产生 keystream 后异或。
 func aesCTR(_ key: [UInt8], counter: [UInt8], _ data: [UInt8]) -> [UInt8] {
     precondition(counter.count == 16, "CTR 计数器必须 16 字节")
     var ctr = counter
@@ -241,12 +232,12 @@ func aesCTR(_ key: [UInt8], counter: [UInt8], _ data: [UInt8]) -> [UInt8] {
 
 // MARK: - 位运算
 
-/// 上游: xor(a, b) —— a 的长度，b 循环
+/// 上游 xor(a, b)：以 a 的长度为准，b 循环。
 func xor(_ a: [UInt8], _ b: [UInt8]) -> [UInt8] {
     a.enumerated().map { i, v in v ^ b[i % b.count] }
 }
 
-/// 死代码：Int32 循环左移，当前未被调用（签名用 Signer.ror32、SM3 用私有 rotl）。
+/// 死代码：未被调用（Signer 用 ror32、SM3 用私有 rotl）。
 func rol(_ v: Int32, _ n: Int) -> Int32 {
     let u = UInt32(bitPattern: v)
     let nn = UInt32(n & 31)

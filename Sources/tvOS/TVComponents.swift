@@ -97,7 +97,7 @@ extension TVCapsuleButton {
 
 // MARK: - 导航页签按钮
 
-/// 顶部横向焦点导航栏的页签按钮（首页/找剧/榜单/我的）。
+/// 顶部横向焦点导航栏的页签按钮（首页/找剧/榜单/我的）
 struct TVTabButton: View {
     let title: String
     let icon: String
@@ -108,7 +108,7 @@ struct TVTabButton: View {
     var body: some View {
         return Button(action: action) {
             HStack(spacing: 18) {
-                // 图标固定宽度，保证各按钮文字起点对齐。
+                // 图标固定宽度
                 Image(systemName: icon)
                     .frame(width: 22, alignment: .center)
                 Text(title)
@@ -192,7 +192,7 @@ struct TVCoverImage: View {
     }
 }
 
-/// 底部状态信息栏：单行、紧凑、不换行，降低占用的垂直高度。
+/// 底部状态信息栏：单行、紧凑、不换行，降低占用的垂直高度
 struct TVStatusBar: View {
     let text: String
 

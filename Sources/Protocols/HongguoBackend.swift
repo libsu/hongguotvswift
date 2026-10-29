@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Mac 客户端协议层编排：把原先由本地 Helper（上游）提供的只读接口，
-// 改为直连官方 HTTPS 的 Swift 实现。返回结果仍是 JSON 结构（[String: Any]），
-// 由 Model.request 用同一套 Decodable 模型解码，从而保证 UI 零改动。
+// 改为直连官方 HTTPS 的 Swift 实现 返回结果仍是 JSON 结构（[String: Any]），
+// 由 Model.request 用同一套 Decodable 模型解码，从而保证 UI 零改动
 import Foundation
 
-/// 只读协议后端。账号层（account/*）与媒体层（play/warm/video）在后续阶段迁移，
+/// 只读协议后端 账号层（account/*）与媒体层（play/warm/video）在后续阶段迁移，
 /// 阶段 2 仅覆盖：search / feed / catalog / rank / related / detail / comments /
-/// comment-page / danmaku。
+/// comment-page / danmaku
 @MainActor
 final class HongguoBackend {
     let repository: ContentRepository
@@ -34,8 +34,8 @@ final class HongguoBackend {
     }
 
     func feed(category: String, page: Int, refresh: Bool) async throws -> [String: Any] {
-        // 对齐官网「分类」页（首页推荐 = category?tab=1&sort_type=1；漫剧/真人 = 同名 category 路由）。
-        // 不再使用签名 mall-tab/category-landpage（该接口结构已变化）。
+        // 对齐官网「分类」页（首页推荐 = category?tab=1&sort_type=1；漫剧/真人 = 同名 category 路由）
+        // 不再使用签名 mall-tab/category-landpage（该接口结构已变化）
         var items: [Series] = []
         var hasMore = false
         if category == "ALL" {
@@ -49,7 +49,7 @@ final class HongguoBackend {
     }
 
     func catalog(category: String, topic: String, board: String, page: Int, refresh: Bool) async throws -> [String: Any] {
-        // board 在此操作用不到（上游 catalog 只用 category/topic），rank 单独处理。
+        // board 在此操作用不到（上游 catalog 只用 category/topic），rank 单独处理
         return try await discover(category: category, topic: topic, page: page)
     }
 
@@ -105,7 +105,7 @@ final class HongguoBackend {
 
     // MARK: - 媒体取流（阶段 3）
 
-    /// 解析某一集的播放流信息（URL + 密钥 + 实际清晰度），供 ResourceLoader 使用。
+    /// 解析某一集的播放流信息（URL + 密钥 + 实际清晰度），供 ResourceLoader 使用
     func stream(episodeID: String, quality: Int) async throws -> ResourceLoader.StreamAndQuality {
         let info = try await repository.stream(id: episodeID, maxQuality: quality)
         let host = URL(string: info.url)?.host ?? "unknown"

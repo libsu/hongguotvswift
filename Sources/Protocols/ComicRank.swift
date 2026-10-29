@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 榜单解析（适配 2026-10 当前站点结构）。
+// 榜单解析（适配 2026-10 当前站点结构）
 // 榜单数据在 <script data-fn-name="r" data-fn-args='["rank_<route>/page","content",{...}]'> 里，
-// 属性用单引号 + HTML 实体（&quot; &amp; &#x2F; 等），payload 含 isSuccess/rankList/pagination。
+// 属性用单引号 + HTML 实体（&quot; &amp; &#x2F; 等），payload 含 isSuccess/rankList/pagination
 import Foundation
 
 enum ComicRank {

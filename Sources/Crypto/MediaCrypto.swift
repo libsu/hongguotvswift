@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 内容密钥派生、URL 解密、MP4 容器(ftyp/moov/trak/stbl/saiz/saio/stsz/stsc/stco/co64/sinf/frma)
-// 解析，以及 AES-CTR 样本级解密。
+// 内容密钥派生、URL 解密、MP4 容器（ftyp/moov/trak/stbl/saiz/saio/stsz/stsc/stco/co64/sinf/frma）解析，
+// 以及 AES-CTR 样本级解密。
 import Foundation
 
 /// 媒体解密/索引解析错误（生产环境可捕获，避免崩溃）。
@@ -28,8 +28,8 @@ enum MediaCrypto {
 
     // MARK: - 密钥与 URL
 
-    /// 上游: deriveKey(value) —— 从 base64 内容密钥派生出 16 字节 AES 密钥。
-    /// 输入来自服务端 spade_a，异常时抛错而非 precondition 崩溃。
+    /// 上游 deriveKey(value)：由 base64 内容密钥派生 16 字节 AES 密钥。
+    /// 输入来自服务端 spade_a，异常抛错而非 precondition 崩溃。
     static func deriveKey(_ value: String) throws -> [UInt8] {
         let raw = decode64(value)
         guard raw.count >= 3 else { throw MediaCryptoError("内容密钥格式异常") }
@@ -52,8 +52,7 @@ enum MediaCrypto {
     /// Integer.bitCount(i)
     private static func nonisolatedBitCount(_ n: Int) -> Int { n.nonzeroBitCount }
 
-    /// 上游: decryptUrl(value, seed) —— 解密带盐的播放地址。
-    /// 输入来自服务端 main_url，异常时抛错而非 precondition 崩溃。
+    /// 上游 decryptUrl(value, seed)：解密带盐的播放地址（来自 main_url），异常抛错。
     static func decryptUrl(_ value: String, seed: [UInt8]) throws -> String {
         let raw = decode64(value)
         guard raw.count >= 20 && raw[0] == 0xa8 && raw[2] == 1 && raw[3] == 0 else {
@@ -108,8 +107,7 @@ enum MediaCrypto {
         return nil
     }
 
-    /// 上游: headerEnd(first, total)
-    /// 生产环境：任何结构异常都抛错（不崩溃），由调用方上报给播放器。
+    /// 上游 headerEnd(first, total)。任何结构异常都抛错，由调用方上报给播放器。
     static func headerEnd(_ first: [UInt8], total: Int64) throws -> Int {
         guard first.count >= 16, String(bytes: first[4..<8], encoding: .ascii) == "ftyp" else { throw MediaCryptoError("不支持的视频容器") }
         let ftyp = readU32(first, 0)
@@ -120,11 +118,10 @@ enum MediaCrypto {
         return Int(end)
     }
 
-    /// 上游: prepare(data, key)
-    /// 生产环境：任何结构异常都抛错（不崩溃）。所有下标访问都做边界检查。
+    /// 上游 prepare(data, key)。任何结构异常都抛错，下标访问均做边界检查。
     static func prepare(_ data: [UInt8], key: [UInt8]?) throws -> Prepared {
         if key == nil { return Prepared(header: data, samples: []) }
-        // 安全读取：越界即抛错。
+        // 越界即抛错。
         func u8(_ i: Int, _ ctx: String) throws -> UInt8 {
             guard i >= 0 && i < data.count else { throw MediaCryptoError("\(ctx) 越界（\(i)/\(data.count)）") }
             return data[i]
@@ -267,7 +264,7 @@ enum MediaCrypto {
 
     // MARK: - 样本解密
 
-    /// 上游: decrypt(data, start, key, prepared)
+    /// 上游 decrypt(data, start, key, prepared)。
     static func decrypt(_ data: [UInt8], start: Int64, key: [UInt8]?, prepared: Prepared) throws -> [UInt8] {
         guard start >= 0 else { throw MediaCryptoError("解密起始位置异常") }
         var result = data
@@ -320,7 +317,7 @@ enum MediaCrypto {
 
     /// 等效：从 counter 产生 keystream，跳过 skip 字节后与 data 异或。
     private static func aesCTRBlockSkip(_ key: [UInt8], _ counter: [UInt8], _ data: [UInt8], _ skip: Int) -> [UInt8] {
-        // 构造 padded = skip 个 0 + data，整体 CTR，再取 skip 之后。
+        // padded = skip 个 0 + data，整体 CTR 后取 skip 之后。
         let padded = [UInt8](repeating: 0, count: skip) + data
         let raw = aesCTR(key, counter: counter, padded)
         return Array(raw[skip..<raw.count])

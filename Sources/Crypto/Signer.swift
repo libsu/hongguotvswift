@@ -429,10 +429,9 @@ final class Signer {
             .replacingOccurrences(of: "%7E", with: "~")
     }
     private static let allowed: CharacterSet = {
-        // 对应 上游 URLEncoder.encode(value, "UTF-8")：保留字母数字和 - _ . *，其余转义
+        // 对应 上游 URLEncoder.encode(value, "UTF-8")：
         var cs = CharacterSet.alphanumerics
         cs.insert(charactersIn: "-_.*")
         return cs
     }()
-    // 标记 encode 是否已用（占位：无需）
 }

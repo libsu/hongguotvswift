@@ -20,31 +20,35 @@ struct PlayerOverlays: View {
     let context: PlayerChromeContext
 
     var body: some View {
-        ZStack {
-            if model.playerControlsVisible {
-                VStack {
-                    HStack {
+        // 需要实时高度计算信息面板上限，避免面板盖住底部控件栏
+        GeometryReader { proxy in
+            ZStack {
+                if model.playerControlsVisible {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            cornerButton
+                        }
                         Spacer()
-                        cornerButton
                     }
-                    Spacer()
-                }
-                .transition(.opacity)
-            }
-            if let detail, model.playerControlsVisible {
-                VStack { Spacer(); PlayerBottomBar(model: model, detail: detail, showsTransport: context.showsTransport) }
                     .transition(.opacity)
-            }
-            // 信息面板叠在控件栏之上，不占控件栏位置；高度限制在 Theme.infoPanelMinHeight…maxHeight
-            if let detail, model.infoPanelOpen {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    PlayerInfoPanel(model: model, detail: detail)
-                        .frame(minHeight: Theme.infoPanelMinHeight, maxHeight: Theme.infoPanelMaxHeight)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .transition(.opacity)
+                if let detail, model.playerControlsVisible {
+                    VStack { Spacer(); PlayerBottomBar(model: model, detail: detail, showsTransport: context.showsTransport) }
+                        .transition(.opacity)
+                }
+                // 信息面板叠在控件栏之上，不占控件栏位置；上限 = 播放区高度 - 控件栏高度
+                if let detail, model.infoPanelOpen {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        PlayerInfoPanel(model: model, detail: detail)
+                            .frame(maxHeight: max(0, proxy.size.height - Theme.playerBarHeight))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .transition(.opacity)
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 

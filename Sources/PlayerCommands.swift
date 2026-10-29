@@ -16,8 +16,15 @@ extension Model {
     }
 
     func playNextEpisode() {
-        guard let detail, let index = episode, index + 1 < detail.episodes.count else { return }
+        guard let index = episode, canPlayNextEpisode else { return }
         if busy { pendingNext = true } else { play(index + 1, auto: true) }
+    }
+
+    /// 是否存在可播放的下一集：「能否下一集」的唯一真源。
+    /// 试播中、无当前集、或已是最后一集时为 false（界面隐藏/置灰与预热逻辑共用）。
+    var canPlayNextEpisode: Bool {
+        guard !preview, let detail, let index = episode else { return false }
+        return index + 1 < detail.episodes.count
     }
 
     func resume() {

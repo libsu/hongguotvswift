@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 时间轴弹幕（匿名只读）。
+// 时间轴弹幕（匿名只读）
 import Foundation
 
 final class TimedComments {
@@ -37,7 +37,7 @@ final class TimedComments {
         return parsed
     }
 
-    /// 拉取并解析一页弹幕，对网络跨态错误（超时/504 等）自动重试，避免偶发抖动导致加载失败。
+    /// 拉取并解析一页弹幕，对网络跨态错误（超时/504 等）自动重试，避免偶发抖动导致加载失败
     private static func fetchWithRetry(transport: CommentTransport, episode: String, payload: [String: Any], series: String, start: Int64, duration: Int64) async throws -> [String: Any] {
         func fetchOnce() async throws -> [String: Any] {
             let result = try await transport.read(episode: episode, payload: payload, source: 601, channel: 1000)
@@ -60,7 +60,7 @@ final class TimedComments {
     }
 
     static func parse(result: [String: Any], series: String, episode: String, start: Int64, duration: Int64) throws -> [String: Any] {
-        // 服务端信封为 PascalCase（Code/Message/Data）；兼容旧的小写键。
+        // 服务端信封为 PascalCase（Code/Message/Data）；兼容旧的小写键
         let code = result.optInt("Code", result.optInt("code", -1))
         guard code == 0 else {
             let msg = result.str("Message", result.str("message"))

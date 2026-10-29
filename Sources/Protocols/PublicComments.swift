@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// 公开官网评论预览（匿名只读）。绝不转发账号凭据。
+// 公开官网评论预览（匿名只读） 绝不转发账号凭据
 import Foundation
 
 final class PublicComments {

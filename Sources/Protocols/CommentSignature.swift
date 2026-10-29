@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Argus/Simon 结构来源于 tr4acex/TikTok-Encryption (MIT)。
-// Gorgon/Ladon 复用现有 GPL core Signer 算法 + 评论协议参数。
+// Argus/Simon 结构来源于 tr4acex/TikTok-Encryption (MIT)
+// Gorgon/Ladon 复用现有 GPL core Signer 算法 + 评论协议参数
 import Foundation
 import CommonCrypto
 import Security
@@ -24,8 +24,8 @@ final class CommentSignature {
 
     private func sm3(_ b: [UInt8]) -> [UInt8] { SM3.digest(b) }
 
-    /// proto：字段编码（tag 用 varint，字符串/字节用 length-delimited）。
-    /// 保持传入顺序（对齐 上游 linkedMapOf 的插入顺序）。
+    /// proto：字段编码（tag 用 varint，字符串/字节用 length-delimited）
+    /// 保持传入顺序（对齐 上游 linkedMapOf 的插入顺序）
     private func proto(_ fields: [(Int, Any)]) -> [UInt8] {
         var out: [UInt8] = []
         func variable(_ value: Int64) {
@@ -101,7 +101,7 @@ final class CommentSignature {
     }
 
     private func ladon(ts: Int64, salt: [UInt8]) -> String {
-        // 上游: md5(...).hexString().toByteArray() —— 取 md5 摘要的 ASCII 十六进制文本字节。
+        // 上游: md5(...).hexString().toByteArray() —— 取 md5 摘要的 ASCII 十六进制文本字节
         let asciiText = hexString(md5(salt + Array("8662".utf8)))
         let aBytes = Array(asciiText.utf8)
         var queue: [Int64] = []
@@ -192,7 +192,7 @@ final class CommentSignature {
     }
 }
 
-/// AES/CBC/PKCS5 加密（仅用于 Argus 容器加密）。
+/// AES/CBC/PKCS5 加密（仅用于 Argus 容器加密）
 func aesCBCEncryptPKCS7(key: [UInt8], iv: [UInt8], data: [UInt8]) -> [UInt8] {
     var out = [UInt8](repeating: 0, count: data.count + 16)
     var outLen = 0
