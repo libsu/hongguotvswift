@@ -3,7 +3,7 @@
 // 只管理磁盘文件并对外传递本地路径（URL）
 import Foundation
 
-/// 封面图磁盘缓存：只负责落地与裁剪，命中时返回本地文件路径
+
 final class CoverCache {
     static let shared = CoverCache()
 
@@ -117,9 +117,11 @@ final class AsyncSemaphore: @unchecked Sendable {
 final class CoverDownloader: @unchecked Sendable {
     static let shared = CoverDownloader()
 
-    private let semaphore = AsyncSemaphore(permits: 10)
+    private let semaphore = AsyncSemaphore(permits: 20)
     private let lock = NSLock()
     private var inflight: [String: Task<Data, Error>] = [:]
+
+    private static let perRequestTimeout: TimeInterval = 6
 
     func download(urlString: String, url: URL, priority: Int = .max) async throws -> URL {
         let key = CoverCache.fileName(urlString) ?? url.lastPathComponent
@@ -140,28 +142,39 @@ final class CoverDownloader: @unchecked Sendable {
         return local
     }
 
+
     private nonisolated static func fetch(url: URL) async throws -> Data {
-        do {
-            return try await fetchOnce(url: url)
-        } catch {
-            guard let fallback = fallbackURL(url) else { throw error }
-            guard let data = try? await fetchOnce(url: fallback) else { throw error }
-            return data
+        let candidates = candidateURLs(url)
+        var lastError: Error = URLError(.badServerResponse)
+        for (i, candidate) in candidates.enumerated() {
+            do {
+                Log.shared.info("cover 尝试第\(i + 1)/\(candidates.count) 个节点 \(candidate.host ?? "?")")
+                return try await fetchOnce(url: candidate)
+            } catch {
+                lastError = error
+                if Task.isCancelled { throw error }
+                Log.shared.warn("cover 节点失败 \(candidate.host ?? "?")：\(Log.describe(error))")
+            }
         }
+        throw lastError
     }
 
     private nonisolated static func fetchOnce(url: URL) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = perRequestTimeout
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { throw URLError(.badServerResponse) }
         return data
     }
 
-    private nonisolated static func fallbackURL(_ url: URL) -> URL? {
+    private nonisolated static func candidateURLs(_ url: URL) -> [URL] {
         guard let host = url.host,
-              host.range(of: "^p\\d+-novel\\.byteimg\\.com$", options: .regularExpression) != nil,
-              !host.hasPrefix("p1-") else { return nil }
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = "p1-novel.byteimg.com"
-        return components?.url
+              host.range(of: "^p\\d+-novel\\.byteimg\\.com$", options: .regularExpression) != nil else {
+            return [url]
+        }
+        let ordered = [host] + ["p3-novel.byteimg.com", "p1-novel.byteimg.com", "p6-novel.byteimg.com"].filter { $0 != host }
+        return ordered.compactMap {
+            var c = URLComponents(url: url, resolvingAgainstBaseURL: false); c?.host = $0; return c?.url
+        }
     }
 }
