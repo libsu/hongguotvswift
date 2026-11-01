@@ -235,7 +235,7 @@ final class ContentRepository {
         values["limit"] = "0"; values["offset"] = "0"; values["is_horizontal_screen"] = "false"; values["reader_single_col_from_ip_strategy"] = "false"
 
         var lastFailure: Error? = nil
-        for host in ["api5-normal-sinfonlinec.fqnovel.com", "api5-normal-hl.fqnovel.com", "api5-normal-lf.fqnovel.com"] {
+        for host in ["api5-normal-sinfonlineb.fqnovel.com","api5-normal-sinfonlinec.fqnovel.com", "api5-normal-hl.fqnovel.com", "api5-normal-lf.fqnovel.com"] {
             do {
                 let request = signer.sign(base: "https://\(host)/reading/bookapi/plan/v:version/", values: values)
                 let raw = try await text(request.url, signed: request, retryTransient: false)
@@ -308,14 +308,15 @@ final class ContentRepository {
 
     private func fetchLadder(id: String, device: [String: String]) async throws -> StreamLadder {
         let payload = "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":3,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"\(id)\"]}}"
-        // 域名轮换：上游对单域名偶发「HTTP 200 但 body 为空/{}」的软失败，b 节点实测最稳，置首。
+        // 域名轮换：b 节点实测最稳，置首。
         let streamHosts = [
             "api5-normal-sinfonlineb.fqnovel.com",
-            "api5-normal-sinfonlinea.fqnovel.com",
-            "api3-normal-sinfonlinea.fqnovel.com",
-            "api5-normal-sinfonlinec.fqnovel.com",
         ]
         var lastError: Error?
+        // 设备级失效信号：空 body（未注册/已失效设备）或 110001/10001/10002（被拒绝）。
+        // 任一域名给出该信号不代表全部域名都不可用，先试完全部域名再上抛，
+        // 让 streamLadder 换设备重注册，而不是把设备失效误当「域名抖动」轮换掉。
+        var deviceRejected = false
         for host in streamHosts {
             var values = device
             values["_rticket"] = String(clock())
@@ -330,15 +331,19 @@ final class ContentRepository {
                 let raw = String(data: resp.data, encoding: .utf8) ?? ""
                 Log.shared.info("streamLadder 取流响应 host=\(host) path=/novel/player/multi_video_model/v1 status=\(resp.statusCode) bytes=\(resp.data.count)")
                 if raw.isEmpty {
+                    // 空 body 是「设备未被接受」的特征，而不是域名抖动；记录下来，试完其余域名后统一上抛。
+                    deviceRejected = true
                     lastError = ContentError("播放接口返回空响应", statusCode: resp.statusCode, retryable: true)
-                    Log.shared.warn("streamLadder 取流失败 host=\(host)：播放接口返回空响应")
+                    Log.shared.warn("streamLadder 取流失败 host=\(host)：播放接口返回空响应（设备可能未注册/已失效）")
                     continue
                 }
                 let data = try parseJSON(raw)
                 let code = data.optInt("Code", data.optInt("code", 0))
                 if Self.isDeviceRejected(code) {
-                    Log.shared.warn("streamLadder 播放设备被拒绝 host=\(host) code=\(code)")
-                    throw PlayerDeviceRejected()
+                    deviceRejected = true
+                    lastError = ContentError("播放设备已被上游拒绝")
+                    Log.shared.warn("streamLadder 播放设备被拒绝 host=\(host) device_id=\(values["device_id"] ?? "?") code=\(code)")
+                    continue
                 }
                 guard code == 0 else {
                     lastError = ContentError("播放接口暂不可用（错误码 \(code)）")
@@ -354,14 +359,13 @@ final class ContentRepository {
                     return ladder
                 }
                 lastError = ContentError("没有电视可播放的清晰度，请稍后再试或选择其他剧集")
-            } catch is PlayerDeviceRejected {
-                throw PlayerDeviceRejected()
             } catch {
                 if Task.isCancelled { throw error }
                 lastError = error
                 Log.shared.warn("streamLadder 取流失败 host=\(host)：\(error.localizedDescription)")
             }
         }
+        if deviceRejected { throw PlayerDeviceRejected() }
         throw lastError ?? ContentError("播放接口返回空响应")
     }
 

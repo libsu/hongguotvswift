@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // 切集预热缓存：按 episodeID 缓存已解析的加密索引（MediaCrypto.Prepared）与会话配置，
-// 使 play 命中预热时跳过取流/解析延迟（对齐 上游 RemoteVideo 的 warmed 单槽语义，
-// 但改为按 episodeID+quality 精确键控，切集/切清晰度时靠键隔离与容量淘汰避免串集）。
+// 使 play 命中预热时跳过取流/解析延迟
+// 但改为按 episodeID+quality 精确键控，切集/切清晰度时靠键隔离与容量淘汰避免串集）
 import Foundation
 
-/// 一个已完成预热的播放会话缓存项。
+/// 一个已完成预热的播放会话缓存项
 struct PreparedEntry {
     let episodeID: String
     let quality: Int
@@ -12,7 +12,7 @@ struct PreparedEntry {
     let prepared: MediaCrypto.Prepared
     let total: Int64
     /// 可选预取的「开头第一段已解密媒体数据」：起始绝对偏移 + 解密后字节，
-    /// 供切集时 ResourceLoader 直接回喂，消除首包网络延迟。
+    /// 供切集时 ResourceLoader 直接回喂，消除首包网络延迟
     let mediaPrefixStart: Int64
     let mediaPrefix: [UInt8]
 
@@ -40,7 +40,7 @@ final class PreparedCache {
         entries[key(episodeID: episodeID, quality: quality)]
     }
 
-    /// 保存一个预热条目，按 LRU 上限淘汰。
+    /// 保存一个预热条目，按 LRU 上限淘汰
     func put(_ entry: PreparedEntry) {
         let k = key(episodeID: entry.episodeID, quality: entry.quality)
         entries[k] = entry
@@ -49,8 +49,8 @@ final class PreparedCache {
         }
     }
 
-    /// 整体清空（退出播放时调用）。切集/切清晰度不会串集：条目按 episodeID+quality 键隔离，
-    /// 旧条目既不会被命中，也会被 capacity 的 LRU 淘汰自然挤出。
+    /// 整体清空（退出播放时调用） 切集/切清晰度不会串集：条目按 episodeID+quality 键隔离，
+    /// 旧条目既不会被命中，也会被 capacity 的 LRU 淘汰自然挤出
     func clear() {
         entries.removeAll()
     }

@@ -80,12 +80,29 @@ struct ContentView: View {
         .onSubmit(of: .search) { model.search() }
     }
 
+    /// 列表常驻、详情叠加：若用 `if showDetail` 分支切换，列表会被销毁重建，
+    /// 返回时 ScrollView 偏移丢失（卡片区回顶）。
     @ViewBuilder
     private var mainContent: some View {
-        if model.section == .home && (model.preview || !model.showDetail) {
+        if model.section == .home && model.preview {
+            // 试播模式：HomeFeedView 内部自带 showDetail 分支切换到播放预览，不叠加详情页
             HomeFeedView(model: model, library: library)
-        } else if model.showDetail, let detail = model.detail {
-            EpisodeView(model: model, detail: detail)
+        } else {
+            ZStack {
+                listContent
+                    .opacity(model.showDetail ? 0 : 1)
+                    .allowsHitTesting(!model.showDetail)
+                if model.showDetail, let detail = model.detail {
+                    EpisodeView(model: model, detail: detail)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var listContent: some View {
+        if model.section == .home {
+            HomeFeedView(model: model, library: library)
         } else if model.section == .mine {
             MyAccountView(model: model, library: library)
         } else {

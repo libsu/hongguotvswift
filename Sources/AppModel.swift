@@ -199,31 +199,42 @@ import AVFoundation
         playStateObservation = player.observe(\.rate, options: [.new]) { [weak self] player, _ in
             Task { @MainActor [weak self] in self?.isPlaying = player.rate > 0 }
         }
-        progressObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 5, preferredTimescale: 600), queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.saveProgress()
-                self?.warmNextIfNearEnd()
-            }
+
+        progressObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 5, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.saveProgress()
+            self.warmNextIfNearEnd()
         }
         // 控件隐藏时无人看进度，跳过更新；可见时 10Hz 足够（时间文本只到秒）。
         // 写进独立的 playbackClock，避免高频刷新带动整棵视图树重绘。
-        playbackTimeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] time in
+        playbackTimeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            guard let self else { return }
             let seconds = time.seconds
-            guard seconds.isFinite else { return }
-            Task { @MainActor [weak self] in
-                guard let self, self.playerControlsVisible else { return }
-                self.playbackClock.update(seconds)
-            }
+            guard seconds.isFinite, self.playerControlsVisible else { return }
+            self.playbackClock.update(seconds)
         }
-        endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] note in
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
             guard let item = note.object as? AVPlayerItem else { return }
-            Task { @MainActor [weak self] in
-                guard let self, item === self.player.currentItem else { return }
-                self.saveProgress(completed: true)
-                if !self.activeTrial && self.autoNext, let index = self.episode, let detail = self.detail, index + 1 < detail.episodes.count {
-                    self.autoRetrying = false
-                    self.playNextEpisode()
-                } else { self.message = "本集播放结束" }
+            guard let self, item === self.player.currentItem else { return }
+            self.saveProgress(completed: true)
+            if !self.activeTrial && self.autoNext,
+               let index = self.episode,
+               let detail = self.detail,
+               index + 1 < detail.episodes.count {
+                self.autoRetrying = false
+                self.playNextEpisode()
+            } else {
+                self.message = "本集播放结束"
             }
         }
     }
@@ -256,6 +267,13 @@ import AVFoundation
             Log.shared.debug("request \(path) [\(source)] ok \(Int(Date().timeIntervalSince(started) * 1000))ms")
             return result
         } catch {
+            // 取消不是故障：既有防竞态的显式 cancel（如 renderDetail 替换旧 relatedTask），
+            // 也有视图销毁导致的父任务连锁取消。降级为 debug，并区分来源便于排查。
+            if Log.isCancellation(error) {
+                let origin = Task.isCancelled ? "父任务取消" : "显式 cancel/被新请求取代"
+                Log.shared.debug("request \(path) [\(source)] cancelled \(Int(Date().timeIntervalSince(started) * 1000))ms: \(origin)")
+                throw error
+            }
             Log.shared.warn("request \(path) [\(source)] failed \(Int(Date().timeIntervalSince(started) * 1000))ms: \(Log.describe(error))")
             throw error
         }

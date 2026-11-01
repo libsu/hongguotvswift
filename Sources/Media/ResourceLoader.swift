@@ -151,7 +151,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             request.finishLoading()
             return
         }
-        Log.shared.info("media \(episodeID) range \(start)-\(end) (\(end - start + 1)B)")
+        // Log.shared.info("media \(episodeID) range \(start)-\(end) (\(end - start + 1)B)")
         // 完全命中已解密的头（ftyp+moov）时直接内存回喂：AVPlayer 首次 2 字节探测会命中，
         // 避免网络延迟导致探测超时。
         if end < Int64(prepared.header.count) {
@@ -162,15 +162,16 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             return
         }
         // 命中预取的首段媒体数据时直接回喂，消除切集首包延迟。
-        if let mpStart = mediaPrefixStart, !mediaPrefix.isEmpty,
-           start >= mpStart, end < mpStart + Int64(mediaPrefix.count) {
-            let lo = Int(start - mpStart), hi = Int(end - mpStart)
-            let clear = Array(mediaPrefix[lo...hi])
-            dataRequest.respond(with: Data(clear))
-            request.finishLoading()
-            Log.shared.info("media \(episodeID) range done: 回喂预取段 \(clear.count)B")
-            return
-        }
+        // 要求过高不被执行
+        // if let mpStart = mediaPrefixStart, !mediaPrefix.isEmpty,
+        //    start >= mpStart, end < mpStart + Int64(mediaPrefix.count) {
+        //     let lo = Int(start - mpStart), hi = Int(end - mpStart)
+        //     let clear = Array(mediaPrefix[lo...hi])
+        //     dataRequest.respond(with: Data(clear))
+        //     request.finishLoading()
+        //     Log.shared.info("media \(episodeID) range done: 回喂预取段 \(clear.count)B")
+        //     return
+        // }
         // 跨 header 边界：前半段内存回喂，后半段远程取流 + 解密。
         let remoteStart: Int64
         if start < Int64(prepared.header.count) {

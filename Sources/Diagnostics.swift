@@ -76,6 +76,18 @@ final class Log {
         }
     }
 
+    /// 是否为「主动取消」而非故障：CancellationError、URLError.cancelled(-999)，
+    /// 以及包含被取消内层错误的 NSURLErrorDomain 包装。
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return true }
+        if let inner = ns.userInfo[NSUnderlyingErrorKey] as? Error, (inner as NSError) !== ns {
+            return isCancellation(inner)
+        }
+        return false
+    }
+
     /// 把错误转成可诊断的文本：localizedDescription 对 DecodingError 只会给
     /// "The data couldn't be read…"、对 NSError 会丢失 domain/code，日志里难以定位。
     static func describe(_ error: Error) -> String {
@@ -83,7 +95,8 @@ final class Log {
         if let decoding = error as? DecodingError { return "\(decoding)" }
         let ns = error as NSError
         if ns.domain == NSURLErrorDomain {
-            // 网络错误补上 URLError.Code 与失败地址，区分超时 / DNS / TLS
+            // 网络错误补上 URLError.Code 与失败地址，区分超时 / DNS / TLS / 取消
+            if ns.code == NSURLErrorCancelled { return "已取消（URLSession 任务被 cancel）" }
             let reason = "\(URLError(URLError.Code(rawValue: ns.code)).localizedDescription)(\(ns.code))"
             if let url = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
                 return "\(reason)（\(url.host ?? "?")）"

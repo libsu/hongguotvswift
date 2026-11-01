@@ -109,7 +109,7 @@ final class HongguoBackend {
     func stream(episodeID: String, quality: Int) async throws -> ResourceLoader.StreamAndQuality {
         let info = try await repository.stream(id: episodeID, maxQuality: quality)
         let host = URL(string: info.url)?.host ?? "unknown"
-        Log.shared.info("stream episode=\(episodeID) quality=\(info.quality) host=\(host) key=\(info.key != nil)")
+        // Log.shared.info("stream episode=\(episodeID) quality=\(info.quality) host=\(host) key=\(info.key != nil)")
         return ResourceLoader.StreamAndQuality(url: info.url, key: info.key, quality: info.quality)
     }
 
