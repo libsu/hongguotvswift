@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # 一键打 macOS 与 tvOS 的 release 包（忽略签名）。
 #
-# macOS：分别编译 arm64 与 x86_64 两套独立包（.app + .zip + 各自更新清单）。
+# macOS：分别编译 arm64 与 x86_64 两套独立包（.app + .zip + 各自更新清单），
+#        再用 lipo 合并为通用包，额外产出一个已签名的 DMG 供手动分发。
 # tvOS：编译真机 arm64，打包 .app（App Store / TestFlight 使用）。
 #
 # 版本号：build（CFBundleVersion）自动 +1，CFBundleShortVersionString 由调用者通过 -v 指定（不指定则沿用当前值）。
@@ -58,12 +59,46 @@ for ARCH in arm64 x86_64; do
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
   swiftc -parse-as-library -O -target "$ARCH-apple-macosx13.0" "${SRC_COMMON[@]}" -o "$APP/Contents/MacOS/HongGuo"
+done
 
-  cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-  cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
-  cp "$ROOT/THIRD_PARTY.md" "$APP/Contents/Resources/THIRD_PARTY.md"
-  cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
-  cp "$ROOT/NOTICE.md" "$APP/Contents/Resources/NOTICE.md"
+# 把资源与 Info.plist 拷进 .app（通用包与单架构包共用）。
+copy_resources() {
+  local app="$1"
+  cp "$ROOT/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
+  cp "$ROOT/Info.plist" "$app/Contents/Info.plist"
+  cp "$ROOT/THIRD_PARTY.md" "$app/Contents/Resources/THIRD_PARTY.md"
+  cp "$ROOT/LICENSE" "$app/Contents/Resources/LICENSE"
+  cp "$ROOT/NOTICE.md" "$app/Contents/Resources/NOTICE.md"
+}
+
+# 签名：与 build-mac-swift.sh 一致，有证书时用证书（稳定 keychain ACL），否则 ad-hoc。
+sign_app() {
+  local app="$1"
+  if [[ -n "${CODE_SIGN_IDENTITY:-}" ]]; then
+    codesign --force --deep --options runtime --sign "$CODE_SIGN_IDENTITY" \
+      --entitlements "$ROOT/MacKeychain.entitlements" "$app"
+  else
+    codesign --force --deep --sign - "$app"
+  fi
+}
+
+# ---------- macOS 通用包（lipo 合并） ----------
+# DMG 对外只发一个通用包；两套单架构包仍各自出 zip 与更新清单，供自更新按架构拉取。
+echo "==> 合并通用包（arm64 + x86_64）"
+UNIVERSAL_APP="$OUT/HongGuo.app"
+rm -rf "$UNIVERSAL_APP"
+mkdir -p "$UNIVERSAL_APP/Contents/MacOS" "$UNIVERSAL_APP/Contents/Resources"
+lipo -create \
+  "$OUT/HongGuo-arm64.app/Contents/MacOS/HongGuo" \
+  "$OUT/HongGuo-x86_64.app/Contents/MacOS/HongGuo" \
+  -output "$UNIVERSAL_APP/Contents/MacOS/HongGuo"
+copy_resources "$UNIVERSAL_APP"
+sign_app "$UNIVERSAL_APP"
+
+for ARCH in arm64 x86_64; do
+  APP="$OUT/HongGuo-$ARCH.app"
+  copy_resources "$APP"
+  sign_app "$APP"
 
   ZIP="$OUT/HongGuo-$ARCH-$VERSION-build$BUILD.zip"
   ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
@@ -75,6 +110,19 @@ for ARCH in arm64 x86_64; do
     python3 "$ROOT/scripts/prepare-mac-release.py" --app "$APP" --zip "$ZIP" --arch "$ARCH"
   fi
 done
+
+# ---------- macOS 通用 DMG ----------
+# 暂存目录内放 .app 与 /Applications 软链，用户拖入即完成安装。
+echo "==> 打包通用 DMG"
+STAGE="$OUT/dmg-stage"
+rm -rf "$STAGE" && mkdir -p "$STAGE"
+cp -R "$UNIVERSAL_APP" "$STAGE/HongGuo.app"
+ln -s /Applications "$STAGE/Applications"
+DMG="$OUT/HongGuo-universal-$VERSION-build$BUILD.dmg"
+rm -f "$DMG"
+hdiutil create -volname "HongGuo" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+sign_app "$DMG"
+rm -rf "$STAGE"
 
 # ---------- tvOS 真机 ----------
 echo "==> 构建 tvOS 真机"
@@ -113,6 +161,8 @@ ditto -c -k --sequesterRsrc --keepParent "$TV_APP" "$OUT/HongGuoTV-$VERSION-buil
 
 echo ""
 echo "release 构建完成："
+echo "  macOS 通用 DMG: $DMG"
+echo "  macOS 通用 app: $UNIVERSAL_APP"
 echo "  macOS arm64:  $OUT/HongGuo-arm64.app  ($OUT/HongGuo-arm64-$VERSION-build$BUILD.zip)"
 echo "  macOS x86_64: $OUT/HongGuo-x86_64.app ($OUT/HongGuo-x86_64-$VERSION-build$BUILD.zip)"
 echo "  tvOS:         $TV_APP  ($OUT/HongGuoTV-$VERSION-build$TV_BUILD.zip)"
