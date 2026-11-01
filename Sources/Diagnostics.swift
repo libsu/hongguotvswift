@@ -153,8 +153,11 @@ final class Log {
     }
 
     /// 擦除疑似敏感值 保守策略：把形如 `name=value` 的 value 替换为 `***`
+    /// 注意：不收宽为 `code`，否则会把上游业务错误码（如 `code=110001`）一并抹掉，
+    /// 这类码是排查设备拒绝 / 取流失败的关键信息。
     private func redact(_ text: String) -> String {
-        let sensitiveKeys = ["cookie", "sessionid", "session_id", "passport_csrf_token", "code", "credentials", "mobile"]
+        let sensitiveKeys = ["cookie", "sessionid", "session_id", "passport_csrf_token",
+                             "sms_code", "verify_code", "captcha", "credentials", "mobile"]
         var out = text
         for key in sensitiveKeys {
             // 匹配 key=value 或 key=较长 token 的场景

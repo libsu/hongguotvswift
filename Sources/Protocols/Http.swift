@@ -8,10 +8,13 @@ struct ContentError: Error, LocalizedError, CustomStringConvertible {
     let statusCode: Int
     /// 「重试可恢复」的软失败（如 HTTP 200 但 body 空）：让上层据可重试性判断，而非猜状态码。
     let retryable: Bool
-    init(_ message: String, statusCode: Int = 0, retryable: Bool = false) {
+    /// 播放设备级失效：上层据此决定是否丢弃设备重注册。用标记而非匹配 message 文案。
+    let deviceRejected: Bool
+    init(_ message: String, statusCode: Int = 0, retryable: Bool = false, deviceRejected: Bool = false) {
         self.message = message
         self.statusCode = statusCode
         self.retryable = retryable
+        self.deviceRejected = deviceRejected
     }
     var description: String { message }
     var errorDescription: String? { message }

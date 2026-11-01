@@ -259,6 +259,8 @@ final class ContentRepository {
         // 对齐上游 openStream：先过滤当前设备无法解码的编码族（AV1/bytevc2），
         // 再按「清晰度优先、同清晰度 HEVC > AVC」择优（省流量、快响应）
         guard let selected = ladder.select(maxQuality: maxQuality, supported: CodecCapabilities.supports) else {
+            let summary = ladder.renditions.map { "\($0.codec) \($0.quality)P" }.joined(separator: ", ")
+            Log.shared.warn("stream 无可用档位 episode=\(id) 共 \(ladder.renditions.count) 档：\(summary)")
             throw ContentError("没有电视可播放的清晰度，请稍后再试或选择其他剧集")
         }
         let quality = selected.quality > 0 ? "\(selected.quality)P" : "自动"
@@ -267,33 +269,36 @@ final class ContentRepository {
         return info
     }
 
-    /// 播放设备被上游拒绝（110001/10001/10002）的内部信号：丢弃旧设备并重注册一次。
-    private struct PlayerDeviceRejected: Error {}
+    /// 播放设备被上游拒绝（110001/10001/10002）或响应为空 body 的内部信号。
+    /// 只记录上游给出的客观事实（错误码/空响应），不推测原因。
+    private struct PlayerDeviceRejected: LocalizedError {
+        let reason: String
+        var errorDescription: String? { "播放设备失效：\(reason)" }
+    }
 
     func streamLadder(id: String) async throws -> StreamLadder {
         guard isValidNumericId(id) else { throw ContentError("剧集 id 异常") }
         var lastError: Error?
-        // 设备被拒绝时换一台重试一次（对齐上游 fqapp 的设备轮换）。
+        // 仅用注册得到的设备：内置旧设备（VendorConstants.device）已被上游永久拒绝 110001，
+        // 不再作为兜底，否则只会白跑一次请求并把真实错误覆盖成「设备已被拒绝」。
         for attempt in 0..<2 {
             do {
                 return try await registeredStreamLadder(id: id)
-            } catch is PlayerDeviceRejected {
-                await playerDevices.invalidate()
-                lastError = ContentError("播放设备已被上游拒绝")
-                Log.shared.warn("streamLadder 播放设备被拒绝，重新注册（第 \(attempt + 1) 次）")
-                if attempt == 0 { continue }
             } catch {
                 lastError = error
-                break
+                guard Self.shouldRotateDevice(error), attempt == 0 else { break }
+                await playerDevices.invalidate()
+                Log.shared.warn("streamLadder 丢弃当前设备并重新注册，触发原因：\(error.localizedDescription)")
             }
         }
-        // 兜底：内置旧设备。线上多数已返回 110001，但部分环境仍可能可用。
-        do {
-            return try await fetchLadder(id: id, device: VendorConstants.device)
-        } catch {
-            lastError = lastError ?? error
-        }
         throw lastError ?? ContentError("播放接口暂不可用，请稍后重试")
+    }
+
+    /// 错误是否指向「设备失效」。
+    /// 注意：无可用档位不是设备信号——服务器回了 code=0 但 video_list 为空，
+    /// 换设备不会解决，只会白白多注册一次。
+    private static func shouldRotateDevice(_ error: Error) -> Bool {
+        error is PlayerDeviceRejected || (error as? ContentError)?.deviceRejected == true
     }
 
     private func registeredStreamLadder(id: String) async throws -> StreamLadder {
@@ -307,16 +312,18 @@ final class ContentRepository {
     }
 
     private func fetchLadder(id: String, device: [String: String]) async throws -> StreamLadder {
-        let payload = "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":3,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"\(id)\"]}}"
+        // device_level=1：实测服务端据此返回全档位 bytevc1(H.265)；
+        // 2/3 会让 720p 及以下全部变成 bytevc2，而 macOS/tvOS 无法解码 bytevc2。
+        let payload = "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":1,\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"\(id)\"]}}"
         // 域名轮换：b 节点实测最稳，置首。
         let streamHosts = [
             "api5-normal-sinfonlineb.fqnovel.com",
         ]
         var lastError: Error?
         // 设备级失效信号：空 body（未注册/已失效设备）或 110001/10001/10002（被拒绝）。
-        // 任一域名给出该信号不代表全部域名都不可用，先试完全部域名再上抛，
-        // 让 streamLadder 换设备重注册，而不是把设备失效误当「域名抖动」轮换掉。
+        // 这些信号要上抛成 PlayerDeviceRejected 让 streamLadder 换设备，而非当作普通取流失败。
         var deviceRejected = false
+        var rejectReason: String?
         for host in streamHosts {
             var values = device
             values["_rticket"] = String(clock())
@@ -329,11 +336,12 @@ final class ContentRepository {
             do {
                 let resp = try await http.request(url, method: "POST", headers: headers, body: Data(payload.utf8))
                 let raw = String(data: resp.data, encoding: .utf8) ?? ""
-                Log.shared.info("streamLadder 取流响应 host=\(host) path=/novel/player/multi_video_model/v1 status=\(resp.statusCode) bytes=\(resp.data.count)")
+                // Log.shared.info("streamLadder 取流响应 host=\(host) path=/novel/player/multi_video_model/v1 status=\(resp.statusCode) bytes=\(resp.data.count)")
                 if raw.isEmpty {
-                    // 空 body 是「设备未被接受」的特征，而不是域名抖动；记录下来，试完其余域名后统一上抛。
+                    // 空 body 是设备未被接受的典型回应，不是网络抖动。
                     deviceRejected = true
-                    lastError = ContentError("播放接口返回空响应", statusCode: resp.statusCode, retryable: true)
+                    rejectReason = "空响应"
+                    lastError = ContentError("播放接口返回空响应", statusCode: resp.statusCode, retryable: true, deviceRejected: true)
                     Log.shared.warn("streamLadder 取流失败 host=\(host)：播放接口返回空响应（设备可能未注册/已失效）")
                     continue
                 }
@@ -341,7 +349,8 @@ final class ContentRepository {
                 let code = data.optInt("Code", data.optInt("code", 0))
                 if Self.isDeviceRejected(code) {
                     deviceRejected = true
-                    lastError = ContentError("播放设备已被上游拒绝")
+                    rejectReason = "错误码 \(code)"
+                    lastError = ContentError("播放设备已被上游拒绝（错误码 \(code)）", deviceRejected: true)
                     Log.shared.warn("streamLadder 播放设备被拒绝 host=\(host) device_id=\(values["device_id"] ?? "?") code=\(code)")
                     continue
                 }
@@ -358,6 +367,7 @@ final class ContentRepository {
                 if let ladder = try await ladder(from: map), !ladder.renditions.isEmpty {
                     return ladder
                 }
+                Log.shared.warn("streamLadder 无可用档位 episode=\(id) code=\(code) video_list=\(Self.model(from: map)?["video_list"] ?? "nil")")
                 lastError = ContentError("没有电视可播放的清晰度，请稍后再试或选择其他剧集")
             } catch {
                 if Task.isCancelled { throw error }
@@ -365,7 +375,7 @@ final class ContentRepository {
                 Log.shared.warn("streamLadder 取流失败 host=\(host)：\(error.localizedDescription)")
             }
         }
-        if deviceRejected { throw PlayerDeviceRejected() }
+        if deviceRejected { throw PlayerDeviceRejected(reason: rejectReason ?? "未知") }
         throw lastError ?? ContentError("播放接口返回空响应")
     }
 
@@ -424,7 +434,9 @@ final class ContentRepository {
         return ""
     }
 
-    private static func renditions(from raw: Any?, seed: [UInt8]?, seen: inout Set<String>) -> [Rendition] {
+    // 以下解析函数不带 private：tests/StreamUrlDetectionTests.swift 直接调它们做回归，
+    // 避免测试里另写一份可能失真的复刻逻辑。
+    static func renditions(from raw: Any?, seed: [UInt8]?, seen: inout Set<String>) -> [Rendition] {
         var out: [Rendition] = []
         func append(_ row: [String: Any], key: String?) {
             guard let rendition = rendition(from: row, key: key, seed: seed), !seen.contains(rendition.url) else { return }
@@ -440,7 +452,7 @@ final class ContentRepository {
     }
 
     /// 兼容旧结构（vheight/codec_type 在顶层）与新结构（视频信息在 video_meta/encrypt_info 内）。
-    private static func rendition(from row: [String: Any], key: String?, seed: [UInt8]?) -> Rendition? {
+    static func rendition(from row: [String: Any], key: String?, seed: [UInt8]?) -> Rendition? {
         let meta = row.obj("video_meta") ?? [:]
         let encrypt = row.obj("encrypt_info") ?? [:]
         let codec = (row.str("codec_type").isEmpty ? meta.str("codec_type") : row.str("codec_type")).lowercased()
@@ -457,8 +469,14 @@ final class ContentRepository {
            String(decoding: data.prefix(4), as: UTF8.self) == "http" {
             url = String(decoding: data, as: UTF8.self)
         }
-        if let seed, !seed.isEmpty {
-            url = (try? MediaCrypto.decryptUrl(url, seed: seed)) ?? url
+        // 明文地址不解密：decryptUrl 内部 decode64 对非法长度会 precondition 崩溃，
+        // try? 捕不住。主接口的 main_url 本就是明文 https。
+        if !url.hasPrefix("http"), let seed, !seed.isEmpty {
+            // decode64 要求长度 % 4 != 1，否则直接终止进程。
+            let normalized = url.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            if normalized.count % 4 != 1 {
+                url = (try? MediaCrypto.decryptUrl(url, seed: seed)) ?? url
+            }
         }
         url = cleanUrl(url)
         guard url.hasPrefix("https://") || url.hasPrefix("http://") else { return nil }
