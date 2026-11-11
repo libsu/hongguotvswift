@@ -32,16 +32,7 @@ final class Signer {
     private func rand() -> Int32 { Int32(bitPattern: UInt32((random() * 4294967296.0).rounded(.down))) }
     private func unsigned(_ v: Int32) -> UInt32 { UInt32(bitPattern: v) }
 
-    private func varint(_ value: Int64) -> [UInt8] {
-        var n = UInt64(bitPattern: value)
-        var out: [UInt8] = []
-        while n > 127 {
-            out.append(UInt8((n & 127) | 128))
-            n = n >> 7
-        }
-        out.append(UInt8(n))
-        return out
-    }
+    private func varint(_ value: Int64) -> [UInt8] { varintEncode(UInt64(bitPattern: value)) }
 
     private enum FieldType { case string, sint, float }
     private struct Field { let tag: Int; let value: Any; let type: FieldType }

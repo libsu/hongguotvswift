@@ -22,6 +22,13 @@ struct Rendition {
 struct StreamLadder {
     let renditions: [Rendition]
 
+    /// 是否存在本机可解码的档位。
+    /// 注意不能靠 `select` 判断：它在本机不支持任何档位时会回退到全部 renditions，
+    /// 依然返回一个 bytevc2 之类不可播的档位。
+    var hasPlayable: Bool {
+        renditions.contains { CodecCapabilities.supports($0) }
+    }
+
     /// 同清晰度下编码优先级：HEVC > AVC > 其它
     private func codecRank(_ codec: String) -> Int {
         if CodecCapabilities.isHEVC(codec) { return 2 }

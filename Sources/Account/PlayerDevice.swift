@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // 播放设备注册与缓存。
 //
-// 取流接口（/novel/player/multi_video_model/v1/）会拒绝未注册的匿名设备：
-// 使用随机 device_id/iid 时表现为「HTTP 200 但 body 为空」，使用内置旧设备时返回 110001。
-// 因此取流前必须通过 DeviceRegister 注册一台设备，并持久化 device_id / install_id / cdid / openudid。
+// 取流前需通过 DeviceRegister 注册一台设备，并持久化 device_id / install_id / cdid / openudid。
+// 注意：接口对非法签名回 HTTP 200 + 空正文（不是设备被拒），空响应不要一律当成设备失效，
+// 无差别重注册只会白白多跑一次注册请求。详见 docs/接口分析.md。
 import Foundation
 
 /// 一台已注册的播放设备。字段均来自注册响应或注册请求本身。

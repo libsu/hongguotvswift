@@ -26,6 +26,25 @@ func hexString(_ data: [UInt8]) -> String {
     data.map { String(format: "%02x", $0) }.joined()
 }
 
+// MARK: - Varint（ProtoBuf 编码）
+
+/// 无符号 varint 编码（base-128，每组 7 位）。
+func varintEncode(_ value: UInt64) -> [UInt8] {
+    var n = value
+    var out: [UInt8] = []
+    while n > 127 {
+        out.append(UInt8((n & 127) | 128))
+        n >>= 7
+    }
+    out.append(UInt8(n))
+    return out
+}
+
+/// 截断为 32 位无符号后再编码。ProtoBuf 字段长度/标签用这个。
+func varintEncode32(_ value: UInt64) -> [UInt8] {
+    varintEncode(UInt64(UInt32(truncatingIfNeeded: value)))
+}
+
 // MARK: - Base64（与上游手写实现一致：容忍 url-safe 输入与缺失填充）
 
 private let b64Alphabet: [Character] = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
