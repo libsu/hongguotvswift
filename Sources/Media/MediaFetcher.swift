@@ -114,7 +114,7 @@ enum MediaFetcher {
     /// 上游 RemoteVideo.prepare：预取 256KB 前缀 → 计算 headerEnd → 补足头部 → 解析密文索引。
     static func prepare(url: String, key: [UInt8]?, session: URLSession) async throws -> Prepared {
         let first = try await range(url: url, start: 0, end: 256 * 1024 - 1, knownTotal: 0, session: session)
-        Log.shared.info("media prepare: 首段 \(first.bytes.count)B total=\(first.total)")
+        // Log.shared.info("media prepare: 首段 \(first.bytes.count)B total=\(first.total)")
         var prefix = first.bytes
         let total = first.total
         let end = try MediaCrypto.headerEnd(prefix, total: total)

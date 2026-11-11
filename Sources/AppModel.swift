@@ -194,7 +194,7 @@ import AVFoundation
     private func installPlayerObservations() {
         playerObservation = player.observe(\.currentItem?.status, options: [.new]) { [weak self] player, _ in
             guard player.currentItem?.status == .failed else { return }
-            Task { @MainActor [weak self] in self?.message = "此视频暂时无法播放，请尝试其他集数或剧集 " }
+            Task { @MainActor [weak self] in self?.message = "此视频暂时无法播放" }
         }
         playStateObservation = player.observe(\.rate, options: [.new]) { [weak self] player, _ in
             Task { @MainActor [weak self] in self?.isPlaying = player.rate > 0 }
@@ -234,7 +234,7 @@ import AVFoundation
                 self.autoRetrying = false
                 self.playNextEpisode()
             } else {
-                self.message = "本集播放结束"
+                self.message = "播放结束"
             }
         }
     }
@@ -247,7 +247,7 @@ import AVFoundation
             message = "输入剧名，开始找剧"
             return
         }
-        message = "客户端启动失败，请重新打开应用"
+        message = "客户端启动失败"
     }
     func request<T: Decodable>(_ path: String, _ parameters: [String: String], body: [String: Any]? = nil) async throws -> T {
         let started = Date()
@@ -314,7 +314,7 @@ import AVFoundation
         do { return try JSONDecoder().decode(T.self, from: data) }
         catch {
             // 结构不一致时给可读错误，而不是解码崩溃。
-            throw NSError(domain: "Hongguo", code: 1, userInfo: [NSLocalizedDescriptionKey: "数据解析失败，请重试 "])
+            throw NSError(domain: "Hongguo", code: 1, userInfo: [NSLocalizedDescriptionKey: "数据解析失败"])
         }
     }
 

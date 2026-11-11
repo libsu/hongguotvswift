@@ -26,14 +26,14 @@ struct CoverImageView: View {
         guard let url = URL(string: urlString) else { Log.shared.warn("cover 失败：空/非法 URL \(urlString)"); return }
         // 命中缓存也要留痕：成功与失败都打，便于区分「读本地」与「走网络」。
         if let cached = CoverCache.shared.cachedURL(for: urlString) {
-            Log.shared.warn(NSImage(contentsOf: cached) == nil ? "cover 缓存命中但解码失败：\(cached.lastPathComponent)" : "cover 缓存命中：\(cached.lastPathComponent)")
+            // Log.shared.warn(NSImage(contentsOf: cached) == nil ? "cover 缓存命中但解码失败：\(cached.lastPathComponent)" : "cover 缓存命中：\(cached.lastPathComponent)")
             localURL = cached; return
         }
         do {
             let local = try await CoverDownloader.shared.download(urlString: urlString, url: url, priority: priority)
             guard !Task.isCancelled else { Log.shared.debug("cover 取消：\(urlString)"); return }
             localURL = local
-            Log.shared.debug("cover 成功：\(urlString)")
+            // Log.shared.debug("cover 成功：\(urlString)")
         } catch {
             if !Task.isCancelled { Log.shared.warn("cover 下载失败：\(urlString) \(error.localizedDescription)") }
         }

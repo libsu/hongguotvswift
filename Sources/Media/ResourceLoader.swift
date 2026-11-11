@@ -74,14 +74,14 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         requestID += 1
         let id = requestID
-        Log.shared.info("media \(episodeID) request#\(id) offset=\(loadingRequest.dataRequest?.requestedOffset ?? -1) len=\(loadingRequest.dataRequest?.requestedLength ?? -1) all=\(loadingRequest.dataRequest?.requestsAllDataToEndOfResource ?? false) info=\(loadingRequest.contentInformationRequest != nil) data=\(loadingRequest.dataRequest != nil)")
+        // Log.shared.info("media \(episodeID) request#\(id) offset=\(loadingRequest.dataRequest?.requestedOffset ?? -1) len=\(loadingRequest.dataRequest?.requestedLength ?? -1) all=\(loadingRequest.dataRequest?.requestsAllDataToEndOfResource ?? false) info=\(loadingRequest.contentInformationRequest != nil) data=\(loadingRequest.dataRequest != nil)")
         // 独立串行队列，不依赖 MainActor（后者可能被 UI/相关作品请求占住）。
         queue.async { [weak self] in
             guard let self else { return }
             Task {
                 do {
                     try await self.handle(loadingRequest)
-                    Log.shared.debug("media \(self.episodeID) request#\(id) done")
+                    // Log.shared.debug("media \(self.episodeID) request#\(id) done")
                 } catch {
                     Log.shared.warn("media \(self.episodeID) request#\(id) failed: \(error.localizedDescription)")
                     loadingRequest.finishLoading(with: error)
@@ -133,7 +133,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             info.contentType = chosen
             info.isByteRangeAccessSupported = true
             info.contentLength = total
-            Log.shared.info("media \(episodeID) contentType=\(chosen) allowed=\(allowed.joined(separator: ",")) contentLength=\(total)")
+            // Log.shared.info("media \(episodeID) contentType=\(chosen) allowed=\(allowed.joined(separator: ",")) contentLength=\(total)")
         }
         guard let dataRequest = request.dataRequest else {
             request.finishLoading()
@@ -190,7 +190,7 @@ final class ResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         // 否则正常结束，剩余由 AVPlayer 续传。
         if fedTo < remoteStart { throw NSError(domain: "HongguoMedia", code: 12, userInfo: [NSLocalizedDescriptionKey: "当前视频源不可用，请切换清晰度或重试"]) }
         request.finishLoading()
-        Log.shared.info("media \(episodeID) range done: 回喂 \(fedTo - remoteStart + 1)B\(fedTo < end ? "（未到末尾，后续续传）" : "")")
+        Log.shared.info("media \(episodeID) range done: 回喂 \(String(format: "%.2f", Double(fedTo - remoteStart + 1)/1048576))MB\(fedTo < end ? "（未到末尾，后续续传）" : "")")
     }
 
     /// 远程取流 + 逐段解密，每段立即回调不累积；每段以文件绝对 offset 作 start，保证 CTR 计数器正确。

@@ -148,7 +148,7 @@ final class CoverDownloader: @unchecked Sendable {
         var lastError: Error = URLError(.badServerResponse)
         for (i, candidate) in candidates.enumerated() {
             do {
-                Log.shared.info("cover 尝试第\(i + 1)/\(candidates.count) 个节点 \(candidate.host ?? "?")")
+                // Log.shared.info("cover 尝试第\(i + 1)/\(candidates.count) 个节点 \(candidate.host ?? "?")")
                 return try await fetchOnce(url: candidate)
             } catch {
                 lastError = error
