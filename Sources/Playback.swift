@@ -120,7 +120,7 @@ extension Model {
         }
     }
 
-    /// 距本集结束不足 15 秒时触发下一集预热（挂在 2 秒进度观测上，避免新增 Timer）
+    /// 距本集结束不足 20 秒时触发下一集预热（挂在 2 秒进度观测上，避免新增 Timer）
     func warmNextIfNearEnd() {
         guard !activeTrial, autoNext, !busy,
               let detail, let index = episode, index + 1 < detail.episodes.count,
@@ -128,7 +128,7 @@ extension Model {
         let duration = item.duration.seconds
         let current = player.currentTime().seconds
         guard duration.isFinite, duration > 0, current.isFinite,
-              duration - current <= 15, duration - current > 0 else { return }
+              duration - current <= 20, duration - current > 0 else { return }
         warmNextEpisode()
     }
 
@@ -137,12 +137,12 @@ extension Model {
     func prefetchEpisode(backend: HongguoBackend, episodeID: String, quality: Int, index: Int, seriesID: String? = nil, preloadItem: Bool = false) async {
         do {
             let info = try await backend.stream(episodeID: episodeID, quality: quality)
-            Log.shared.info("prefetch \(episodeID) 取流完成，开始 prepare")
+            // Log.shared.info("prefetch \(episodeID) 取流完成，开始 prepare")
             let stream = ResourceLoader.Stream(url: info.url, key: info.key)
             let prepared = try await MediaFetcher.prepareWithMediaPrefix(url: info.url, key: info.key, session: ResourceLoader.defaultSession())
             let headerBytes = prepared.prepared.header.count
             let prefixBytes = prepared.mediaPrefix.count
-            Log.shared.info("warmNextEpisode \(episodeID) 成功：header=\(headerBytes)B prefix=\(prefixBytes)B samples=\(prepared.prepared.samples.count) total=\(prepared.total)")
+            // Log.shared.info("warmNextEpisode \(episodeID) 成功：header=\(headerBytes)B prefix=\(prefixBytes)B samples=\(prepared.prepared.samples.count) total=\(prepared.total)")
             preparedCache.put(PreparedEntry(episodeID: episodeID, quality: quality, stream: stream, prepared: prepared.prepared, total: prepared.total, mediaPrefixStart: prepared.mediaPrefixStart ?? 0, mediaPrefix: prepared.mediaPrefix))
             guard preloadItem else { return }
             // 复用本次取流的 url/key + 索引作为 seed，避免到时二次 stream() 撞上不同 CDN host
@@ -153,7 +153,7 @@ extension Model {
             let item = AVPlayerItem(asset: asset)
             self.prewarmLoader = loader
             self.prewarmedEpisode = PrewarmedEpisode(item: item, episodeID: episodeID, seriesID: seriesID, index: index, quality: info.quality)
-            Log.shared.info("warmNextEpisode \(episodeID) 已预创建 AVPlayerItem，触发预加载…")
+            // Log.shared.info("warmNextEpisode \(episodeID) 已预创建 AVPlayerItem，触发预加载…")
             // 仅创建 Item 不会触发取流；显式 load duration/tracks 才会走 resourceLoader 预热
             let duration: CMTime? = try? await asset.load(.duration)
             let tracks = try? await asset.load(.tracks)
