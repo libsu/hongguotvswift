@@ -29,6 +29,11 @@ struct StreamLadder {
         renditions.contains { CodecCapabilities.supports($0) }
     }
 
+    /// 有档位但本机一个都解不了。与服务端根本没给档位（剧集无片源/参数不对）是两回事。
+    var isUndecodableOnly: Bool {
+        !renditions.isEmpty && !hasPlayable
+    }
+
     /// 同清晰度下编码优先级：HEVC > AVC > 其它
     private func codecRank(_ codec: String) -> Int {
         if CodecCapabilities.isHEVC(codec) { return 2 }

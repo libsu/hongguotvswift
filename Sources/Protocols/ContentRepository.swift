@@ -260,7 +260,8 @@ final class ContentRepository {
         guard let selected = ladder.select(maxQuality: maxQuality, supported: CodecCapabilities.supports) else {
             let summary = ladder.renditions.map { "\($0.codec) \($0.quality)P" }.joined(separator: ", ")
             // Log.shared.warn("stream 无可用档位 episode=\(id) 共 \(ladder.renditions.count) 档：\(summary)")
-            throw ContentError("没有可播放的清晰度")
+            // 服务端有档位但全不可解码时，提示成「本机兼容」而非「没有清晰度」，便于用户判断。
+            throw ContentError(ladder.isUndecodableOnly ? "本机无法解码该剧集的清晰度（\(summary)）" : "没有可播放的清晰度")
         }
         let quality = selected.quality > 0 ? "\(selected.quality)P" : "自动"
         // Log.shared.info("stream select episode=\(id) codec=\(selected.codec) quality=\(selected.quality) size=\(selected.width ?? 0)x\(selected.height ?? 0)")
@@ -268,7 +269,7 @@ final class ContentRepository {
         return info
     }
 
-    /// 设备被上游拒绝（错误码）的内部信号，由 `streamLadder` 捕获后换设备重试。
+    /// 设备被上游拒绝（错误码）或给出全不可解码档位的内部信号，由 `streamLadder` 捕获后换设备重试。
     /// 只携带上游给出的客观事实，不推测原因。
     private struct PlayerDeviceRejected: LocalizedError {
         let reason: String
@@ -296,18 +297,17 @@ final class ContentRepository {
     }
 
     /// 该错误是否应触发换设备重注册。
-    /// 无可用档位不算设备信号：服务端回了 code=0 但 video_list 为空/全不可解码，
-    /// 换设备也解决不了。空响应同理：接口整体故障时换新设备也一样空。
+    /// 档位全部不可解码属于设备信号（见 `registeredStreamLadder`）；
+    /// 服务端一个档位都没给则不是，换设备也解决不了。
     private static func shouldRotateDevice(_ error: Error) -> Bool {
         error is PlayerDeviceRejected || (error as? ContentError)?.deviceRejected == true
     }
 
     /// 按设备档位取流。默认先用 device_level=3，拿不到本机可解码档位时降级到 1 重试。
     ///
-    /// device_level 对返回档位的影响（实测）：
-    /// - 3：清晰度最全，但 720p 及以下多为 bytevc2，本机无法解码
-    /// - 1：全档位 H.265，但部分剧集最高只有 480p
-    /// 因此 1 不能作为默认值，只能作为后备。
+    /// device_level 对档位的影响随服务端策略和剧集波动，实测不可靠（见 docs/接口分析.md）。
+    /// 因此 level=3 无论是以「无档位」「无本机可解码档位」还是「请求失败」告终，
+    /// 都应再尝试一次 level=1；只有设备级失效才不重试。
     private func registeredStreamLadder(id: String) async throws -> StreamLadder {
         let device = try await playerDevices.obtain()
         var values = VendorConstants.device
@@ -321,11 +321,17 @@ final class ContentRepository {
             if ladder.hasPlayable { return ladder }
             // Log.shared.warn("streamLadder 默认档位无本机可解码档位，改用 device_level=1 重试 episode=\(id)")
         } catch {
-            // 设备级失效、可重试的空响应（接口可能整体故障）都交给外层：降档位没有意义。
-            if error is PlayerDeviceRejected || (error as? ContentError)?.retryable == true { throw error }
+            // 设备级失效交给外层换设备，降档位没有意义。
+            // 其余错误（空响应、code!=0、网络抖动）都可能只是 level=3 这一路的问题，继续降级。
+            if error is PlayerDeviceRejected { throw error }
             // Log.shared.warn("streamLadder 默认档位取流失败（\(error.localizedDescription)），改用 device_level=1 重试 episode=\(id)")
         }
-        return try await fetchLadder(id: id, device: values, deviceLevel: 1)
+
+        let fallback = try await fetchLadder(id: id, device: values, deviceLevel: 1)
+        if fallback.hasPlayable { return fallback }
+        // 两个档位都只给出本机解不了的编码：档位可能与设备关联，上抛设备信号让外层换设备。
+        if fallback.isUndecodableOnly { throw PlayerDeviceRejected(reason: "档位均不可解码") }
+        return fallback
     }
 
     /// 播放模型接口所用的番茄小说应用标识；参与 Ladon/Argus 签名，必须与 UA 版本号一致。
