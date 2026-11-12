@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# 用 xcodegen 生成 HongGuoTV.xcodeproj：
+#   xcodegen generate
+#
+# 该工程只用于 App Store / TestFlight 分发。日常开发仍可用 swiftc 直编
+# （见 scripts/build-tv-swift.sh 与 scripts/release.sh 的 ad-hoc 分支）。
+#
+# 签名留空：不写 DEVELOPMENT_TEAM / CODE_SIGN_IDENTITY，由本机 Xcode 账号决定。
+# 未登录账号时仍可 `CODE_SIGNING_ALLOWED=NO` 编译验证。
+name: HongGuoTV
+options:
+  bundleIdPrefix: com.hongguotvswift
+  deploymentTarget:
+    tvOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "18"
+    # 源文件通过 Info.plist 注入版本号，这里只影响 Xcode 归档元数据。
+
+targets:
+  HongGuoTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Sources
+        excludes:
+          - "GUI/**"     # macOS 专用（AppKit）
+          - "tvOS/**"    # 下面单独加入
+      - path: Sources/tvOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hongguotvswift.tv
+        PRODUCT_NAME: HongGuoTV
+        INFOPLIST_FILE: TVInfo.plist
+        GENERATE_INFOPLIST_FILE: NO
+        # 主入口是 SwiftUI App，不需要 storyboard。
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        # 签名留空，交给本机 Xcode 账号；命令行构建时可用
+        # CODE_SIGNING_ALLOWED=NO 或 -allowProvisioningUpdates 覆盖。
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_EMIT_LOC_STRINGS: NO
