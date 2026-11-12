@@ -42,8 +42,8 @@ fi
 
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$APP/Contents/Info.plist")
-ARCHIVE="$DEST/HongGuo-$(uname -m)-$VERSION-build$BUILD-test.zip"
+ARCHIVE="$DEST/HongGuo-macOS-$(uname -m)-$VERSION-build$BUILD-test.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
-python3 "$ROOT/scripts/prepare-mac-release.py" --app "$APP" --zip "$ARCHIVE" --arch "$(uname -m)"
+python3 "$ROOT/scripts/prepare-mac-release.py" --app "$APP" --zip "$ARCHIVE"
 echo "$APP"
 echo "$ARCHIVE"

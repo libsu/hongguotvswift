@@ -3,35 +3,25 @@
 import Foundation
 import CryptoKit
 
+/// 更新清单。不区分架构：发布的 zip 是 arm64 + x86_64 通用包。
 struct MacManifest: Decodable {
     let schema: Int
     let bundleID: String
     let build: Int
     let version: String
-    let architecture: String
     let minMacOS: Int
     let fileName: String
     let size: Int64
     let sha256: String
     let notes: String
     func validate() throws {
-        guard schema == 1, bundleID == "com.hongguotvswift.app", build > 0, architecture == Self.localArchitecture,
+        guard schema == 1, bundleID == "com.hongguotvswift.app", build > 0,
               minMacOS >= 13, minMacOS <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
               size > 0, size <= 300 * 1024 * 1024,
-              fileName.range(of: "^HongGuo-\(Self.localArchitecture)-[0-9][A-Za-z0-9.+-]{0,80}\\.zip$", options: .regularExpression) != nil,
+              fileName.range(of: "^HongGuo-macOS-[0-9][A-Za-z0-9.+-]{0,80}\\.zip$", options: .regularExpression) != nil,
               sha256.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else {
             throw NSError(domain: "MacUpdate", code: 1, userInfo: [NSLocalizedDescriptionKey: "Mac 更新清单不兼容，请查看发布页面 "])
         }
-    }
-
-    static var localArchitecture: String {
-#if arch(arm64)
-        return "arm64"
-#elseif arch(x86_64)
-        return "x86_64"
-#else
-        return "unknown"
-#endif
     }
 }
 // A separate stable asset prevents the TV Latest release from selecting a Mac-only package.
@@ -70,7 +60,7 @@ struct MacManifest: Decodable {
         Task {
             defer { busy = false }
             do {
-                var request = URLRequest(url: URL(string: base + "mac-update-" + MacManifest.localArchitecture + ".json")!)
+                var request = URLRequest(url: URL(string: base + "mac-update.json")!)
                 request.cachePolicy = .reloadIgnoringLocalCacheData; request.timeoutInterval = 25
                 let (data, response) = try await session.data(for: request)
                 guard (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 65536, Self.accepted(response.url) else { throw URLError(.badServerResponse) }
