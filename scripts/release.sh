@@ -154,7 +154,7 @@ fi
 # ---------- 汇总 ----------
 
 echo ""
-echo "release 构建完成（$VERSION，mac build $MAC_BUILD，tv build $TV_BUILD）："
+echo "release 构建完成（${VERSION}，mac build ${MAC_BUILD}，tv build ${TV_BUILD}）："
 for f in "$MAC_ZIP" "$DMG" "$TV_ARTIFACT" "$OUT/mac-update.json"; do
   echo "  $(basename "$f")"
 done
