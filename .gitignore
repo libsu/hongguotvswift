@@ -1,8 +1,9 @@
 # 构建产物
 outputs/
 build/
+
+# 本地笔记（历史提交已移出版本库，保持忽略）
 docs/
-.DS_Store
 
 # Xcode / Swift
 .swiftpm/
@@ -10,6 +11,7 @@ docs/
 DerivedData/
 
 # macOS
+.DS_Store
 *.app
 *.zip
 mac-update.json
