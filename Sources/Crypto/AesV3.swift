@@ -10,6 +10,9 @@ struct AesV3 {
     private let con: [Int]
     private let order: [Int]
     private let keys: [[Int]]
+    /// v5 的字节位序表；v3 用固定的一组，v5 换了两张表。
+    private let wire: [Int]
+    private let compact: [Int]
 
     private static let conTable = [
         [1, 0, 2, 3], [2, 0, 3, 1], [0, 1, 3, 2], [1, 0, 2, 3],
@@ -20,15 +23,42 @@ struct AesV3 {
         [0, 9, 14, 7, 4, 13, 2, 11, 8, 1, 6, 3, 12, 5, 10, 15],
         [0, 9, 14, 11, 4, 13, 2, 7, 8, 1, 6, 15, 12, 5, 10, 3],
     ]
+    private static let initialTable = [
+        Int(bitPattern: 0xca025ddc), Int(bitPattern: 0x823dc546),
+        Int(bitPattern: 0xc9420583), Int(bitPattern: 0xc298225f),
+    ]
 
-    init(key: [UInt8], timestamp: Int) {
+    // v5（v04.10.03）换掉了 con / order / initial 三张表，并改用独立 sbox。
+    private static let v5ConTable = [
+        [2, 0, 3, 1], [1, 3, 2, 0], [3, 2, 1, 0], [2, 3, 1, 0],
+    ]
+    private static let v5OrderTable = [
+        [0, 9, 14, 15, 4, 13, 2, 7, 8, 1, 6, 3, 12, 5, 10, 11],
+        [0, 9, 14, 11, 4, 13, 2, 3, 8, 1, 6, 15, 12, 5, 10, 7],
+        [0, 9, 14, 3, 4, 13, 2, 15, 8, 1, 6, 11, 12, 5, 10, 7],
+        [0, 9, 14, 15, 4, 13, 2, 3, 8, 1, 6, 11, 12, 5, 10, 7],
+    ]
+    private static let v5InitialTable = [
+        Int(bitPattern: 0xbbb5de72), Int(bitPattern: 0xd4638d5b),
+        Int(bitPattern: 0x92a5f73b), Int(bitPattern: 0x89f8a1c9),
+    ]
+    private static let wireTable = [5, 6, 2, 4, 3, 1, 0, 7]
+    private static let compactTable = [1, 6, 0, 7, 2, 4, 5, 3]
+    private static let v5WireTable = [6, 5, 3, 4, 2, 7, 1, 0]
+    private static let v5CompactTable = [1, 7, 3, 6, 2, 0, 4, 5]
+
+    /// - Parameter v5: 使用 v04.10.03 的参量表与 sbox；false 为原有 v3 行为。
+    init(key: [UInt8], timestamp: Int, v5: Bool = false) {
         let word = timestamp & 3
         self.word = word
-        self.box = Array(VendorConstants.sbox[word * 256..<(word + 1) * 256]).map { Int($0) }
-        self.con = Self.conTable[word]
-        self.order = Self.orderTable[word]
+        let sbox = v5 ? SignerV5Constants.sbox : VendorConstants.sbox
+        self.box = Array(sbox[word * 256..<(word + 1) * 256]).map { Int($0) }
+        self.con = (v5 ? Self.v5ConTable : Self.conTable)[word]
+        self.order = (v5 ? Self.v5OrderTable : Self.orderTable)[word]
+        self.wire = v5 ? Self.v5WireTable : Self.wireTable
+        self.compact = v5 ? Self.v5CompactTable : Self.compactTable
 
-        let initial = [Int(bitPattern: 0xca025ddc), Int(bitPattern: 0x823dc546), Int(bitPattern: 0xc9420583), Int(bitPattern: 0xc298225f)][word]
+        let initial = (v5 ? Self.v5InitialTable : Self.initialTable)[word]
         let le = le32(initial)
         let combined = le + le + le + le
         let xorBuf = xor(combined, Array(key))
@@ -87,12 +117,12 @@ struct AesV3 {
     func encrypt(source: [UInt8], iv: [UInt8]) -> [UInt8] {
         precondition(source.count >= 248, "source.size >= 248")
         var plaintext = [UInt8](repeating: 0, count: 32)
+        // wire/compact 描述每个字节取哪一位、放到哪一位；v3 与 v5 用不同位序表。
         for i in 0..<31 {
-            let at = i * 8
-            let b0 = Int(source[at]), b1 = Int(source[at + 1]), b2 = Int(source[at + 2]), b3 = Int(source[at + 3])
-            let b4 = Int(source[at + 4]), b5 = Int(source[at + 5]), b6 = Int(source[at + 6]), b7 = Int(source[at + 7])
-            let v = ((b0 >> 4) & 2) | (b1 & 64) | ((b2 >> 2) & 1) | ((b3 << 3) & 128) | ((b4 >> 1) & 4) | ((b5 << 3) & 16) | ((b6 << 5) & 32) | ((b7 >> 4) & 8)
-            plaintext[i] = UInt8(v)
+            for j in 0..<8 {
+                let bit = (Int(source[i * 8 + j]) >> wire[j]) & 1
+                plaintext[i] |= UInt8(bit << compact[j])
+            }
         }
         plaintext[31] = 1
         let first = block(xor(Array(plaintext[0..<16]), Array(iv)))
@@ -100,16 +130,11 @@ struct AesV3 {
         let key = first + second
         var out = source
         for i in 0..<31 {
-            let at = i * 8
-            let k = Int(key[i])
-            out[at] = UInt8((Int(out[at]) & 0xdf) | ((k << 4) & 32))
-            out[at + 1] = UInt8((Int(out[at + 1]) & 0xbf) | (k & 64))
-            out[at + 2] = UInt8((Int(out[at + 2]) & 0xfb) | ((k << 2) & 4))
-            out[at + 3] = UInt8((Int(out[at + 3]) & 0xef) | ((k >> 3) & 16))
-            out[at + 4] = UInt8((Int(out[at + 4]) & 0xf7) | ((k + k) & 8))
-            out[at + 5] = UInt8((Int(out[at + 5]) & 0xfd) | ((k >> 3) & 2))
-            out[at + 6] = UInt8((Int(out[at + 6]) & 0xfe) | ((k >> 5) & 1))
-            out[at + 7] = UInt8((Int(out[at + 7]) & 0x7f) | ((k << 4) & 128))
+            for j in 0..<8 {
+                let at = i * 8 + j
+                let k = (Int(key[i]) >> compact[j]) & 1
+                out[at] = UInt8((Int(out[at]) & ~(1 << wire[j])) | (k << wire[j]))
+            }
         }
         return [key.last!] + out
     }

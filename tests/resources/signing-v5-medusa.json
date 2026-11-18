@@ -1,0 +1,21 @@
+[
+  {
+    "ts": 1800000000,
+    "ticket": "1800000000013",
+    "url": "https://reading.snssdk.com/novel/player/multi_video_model/player/v1?device_id=111531103382715&iid=111531103386811&version_name=7.4.3.32&channel=update_64&os_version=16&device_type=25053RT47C&aid=1967&app_name=novelapp&_rticket=1800000000013",
+    "body": "1f8b080001020304",
+    "device_nonce": "synthetic",
+    "medusa": "BdJJay2ZBqFJp0QoP2fnRyK/hT0AAAABXsogABCAARkOGF+S9Xi1OEw7h1uHPryrUBlGKmQckGH+KsbXQS7tb9doL3HwETXcb0kXznGxtLtaQlXTPVfG8Gi81mooftpOItg793MHS0D+AlZZkKEboo4oY+zjnTh2kmqCxhpnqKi34YerK3smoKd0XnnMAIhQXbJVAd/eeWTwe3KkTkoBQCpqvl4FK1l/GimxlqPT1PIduQsf7qsuqk0nHgmQfSa+qNou/09RzcKz5AQ+4xoIB+cvDpkVynVpFsu6Z1hoUK6YgGXAGmGgQvwnVXYh/9G5dBEUatLFSXPd6XtZL2uJfmpToNTO8dSLN5H6VOY2ujcQVdxkE9Jzj6VWLwaKHpXpflz2/A9Dv1Yys5z+lJJV60cFTFh9t+EOIktUCSjt2hA0nhskMz2iep5SHlimetbUAHH9vl8tLjshbDnr9GNSbiebg+cN0QM6uHmb1e1ygdpGMzNt2Ii0AsiHKg+tu8DNAVIbYhItXiihgn/GpFSbIwTY/NAMH7l59puaYtRDg4JhIDGGQDQkkN5yCIOEE3cXpLLMbXS4PNz00VwTFgzz/lMd1jAICTXXN9S5IeODLqQ8o////3////9/AIA=",
+    "helios": "AAAAgOldh6XkgPCcSOD+1hk6geYVwA9oX+NbtYeS3DNddvJe",
+    "values": {
+      "device_id": "111531103382715",
+      "iid": "111531103386811",
+      "version_name": "7.4.3.32",
+      "channel": "update_64",
+      "os_version": "16",
+      "device_type": "25053RT47C",
+      "aid": "1967",
+      "app_name": "novelapp"
+    }
+  }
+]

@@ -3,8 +3,9 @@ import Foundation
 
 enum VendorConstants {
     static let VIDEO_UA = "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
-    /// 播放模型接口专用：实测 71332 被拒（200 + 空正文），74332 可正常返回档位。
-    static let PLAYBACK_UA = "com.phoenix.read/74332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
+    /// 播放模型接口专用 UA。v5（v04.10.03）签名要求此版本号，
+    /// 换成 71332/74332 均返回 200 + 空正文。
+    static let PLAYER_UA = "com.phoenix.read/71532 (Linux; U; Android 9; SM-N9860; Build/PQ3A.190705.10241111;tt-ok/3.12.13.20)"
     static let APP_UA = "com.phoenix.read/72232 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)"
 
     static let device: [String: String] = [

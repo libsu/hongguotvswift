@@ -18,14 +18,26 @@ final class Signer {
     private let clock: () -> Int64
     private let device: [String: String]
     private let random: () -> Double
+    /// v5 的设备帧 nonce 与启动时间（进程内固定，与上游一致）。
+    private let deviceNonce: String
+    private let processStarted: Int64
 
     init(clock: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
          device: [String: String] = VendorConstants.device,
-         random: @escaping () -> Double = { Double.random(in: 0..<1) }) {
+         random: @escaping () -> Double = { Double.random(in: 0..<1) },
+         deviceNonce: String = Signer.processNonce,
+         processStarted: Int64 = Signer.processStarted) {
         self.clock = clock
         self.device = device
         self.random = random
+        self.deviceNonce = deviceNonce
+        self.processStarted = processStarted
     }
+
+    /// v5 设备帧 nonce：进程启动时生成一次。
+    static let processNonce = base64Encode((0..<18).map { _ in UInt8.random(in: 0...255) })
+    /// v5 设备帧启动时间（秒）。
+    static let processStarted = Int64(Date().timeIntervalSince1970)
 
     // MARK: - 基础工具（对应 上游 private fun）
 
@@ -87,13 +99,16 @@ final class Signer {
         getIv(getIv(getIv(Int32(bitPattern: 0x20230928), query), body), le32(ts))
     }
 
-    func branch(query: String, body: [UInt8]?, ts: Int32) -> Int32 {
+    /// - Parameter v5: v04.10.03 只用 `iv & 15 == 12` 这一支，对应 branch 0。
+    func branch(query: String, body: [UInt8]?, ts: Int32, v5: Bool = false) -> Int32 {
         let q = Array(query.utf8)
         let b = body != nil ? digest("MD5", body!) : [UInt8](repeating: 0, count: 16)
-        return Int32(bitPattern: (UInt32(bitPattern: iv(sm3(q), b, ts)) & 15) % 3)
+        let low = UInt32(bitPattern: iv(sm3(q), b, ts)) & 15
+        if v5 { return low == 12 ? 0 : 1 }
+        return Int32(bitPattern: low % 3)
     }
 
-    private func sumMd5(_ data: [UInt8]) -> Int32 {
+    private func sumMd5(_ data: [UInt8], v5: Bool = false) -> Int32 {
         var check = Int32(bitPattern: 0x20220420)
         for i in 0..<12 {
             let temp: Int32 = (i & 1 == 0)
@@ -107,26 +122,34 @@ final class Signer {
             }
             check = check ^ temp
         }
-        return Int32(bitPattern: (UInt32(bitPattern: check) | 4) ^ 0x1000000)
+        // v5 额外置 bit 5。
+        return Int32(bitPattern: (UInt32(bitPattern: check) | (v5 ? 0x24 : 4)) ^ 0x1000000)
     }
 
     private func ror32(_ v: Int32, _ n: Int) -> Int32 {
-        let u = UInt32(bitPattern: v)
         let nn = UInt32(n & 31)
+        // 移位量为 0 时 Swift 的 `<< 32` 是未定义行为，须单独短路（对应 Integer.rotateRight(x, 0)）。
+        if nn == 0 { return v }
+        let u = UInt32(bitPattern: v)
         return Int32(bitPattern: (u >> nn) | (u << (32 - nn)))
     }
 
-    func hashF13(query: [UInt8], body: [UInt8], ts: Int32) -> [UInt8] {
+    /// - Parameter v5: v04.10.03 变体：固定 seed、单组轮常量、校验和置 bit 5。
+    func hashF13(query: [UInt8], body: [UInt8], ts: Int32, v5: Bool = false) -> [UInt8] {
         let ivVal = iv(query, body, ts)
         let ivU = UInt32(bitPattern: ivVal)
         let index = Int((ivU & 15) / 3)
-        precondition((ivU & 15) % 3 == 0, "Unsupported hash branch")
+        if v5 {
+            precondition((ivU & 15) == 12, "Unsupported v5 hash branch")
+        } else {
+            precondition((ivU & 15) % 3 == 0, "Unsupported hash branch")
+        }
 
         let ivV1Tbl: [Int32] = [
             Int32(bitPattern: 0xc4a78580), Int32(bitPattern: 0xb3c0fd39), Int32(bitPattern: 0xc58c5686),
             Int32(bitPattern: 0xc9aa3ba7), Int32(bitPattern: 0xf5a7adf2), Int32(bitPattern: 0x963c2ed1),
         ]
-        let ivV1 = ivV1Tbl[index]
+        let ivV1 = v5 ? Int32(bitPattern: 0x9d4a97c2) : ivV1Tbl[index]
         let count = ivV1 &+ ts
         let tt = VendorConstants.hashTable.map { ror32($0, Int((count &+ 1) & 255)) }
         let shift = Int((count &+ 2) & 7)
@@ -166,7 +189,7 @@ final class Signer {
             [96, 0, 5, 6, 7, 3, 1, 2, 5, 4, 4],
             [100, 2, 0, 3, 5, 4, 6, 7, 2, 1, 5],
         ]
-        let chosen = chosenTbl[index]
+        let chosen = v5 ? [96, 1, 3, 4, 0, 6, 5, 2, 0, 7, 7] : chosenTbl[index]
 
         var d = initial
         for i in 0..<chosen[0] {
@@ -184,9 +207,7 @@ final class Signer {
             let n5 = rol30 ^ rol19 ^ rol10
             let n6 = (d[chosen[2]] & d[chosen[6]]) | ((d[chosen[2]] | d[chosen[6]]) & d[chosen[7]])
             let old = d[chosen[9]]
-            d.remove(at: 7)
-            d.insert(0, at: 0)
-            // 上游: d.add(0, d.removeAt(7)) —— 把索引7的元素移到最前
+            // 上游: d.add(0, d.removeAt(7)) —— 把索引 7 的元素移到最前。
             let removed = d.remove(at: 7)
             d.insert(removed, at: 0)
             d[chosen[10]] = n5 &+ n6 &+ n4
@@ -196,7 +217,7 @@ final class Signer {
         var ret: [UInt8] = []
         for i in 0..<8 { ret += be32(d[i] &+ initial[i]) }
         let folded = xor(Array(ret[0..<16]), Array(ret[16..<32]))
-        return folded + le32(sumMd5(folded))
+        return folded + le32(sumMd5(folded, v5: v5))
     }
 
     func gorgon(query: String, body: [UInt8]?, ts: Int32, random: Int32) -> String {
@@ -332,13 +353,71 @@ final class Signer {
         return base64Encode(prefix + [UInt8(truncatingIfNeeded: r), UInt8((UInt32(bitPattern: r) >> 8) & 0xff), 0, 1] + encrypted)
     }
 
+    /// v04.10.03 播放签名（x-medusa）。与 v3 相比：换 magic/license/signKey、
+    /// 独立 sbox、AesV3 v5 参量表、hashF13 v5 变体、8 字节 flags 与不同帧字段。
+    func medusaV5(url: String, body: [UInt8]?, ts: Int32) -> String {
+        let query = Array(url[url.firstIndex(of: "?")!...].dropFirst().utf8)
+        let querySm3 = sm3(query)
+        let bodyMd5 = body != nil ? digest("MD5", body!) : [UInt8](repeating: 0, count: 16)
+        let f13 = hashF13(query: querySm3, body: bodyMd5, ts: ts, v5: true)
+        let flags = [UInt8](repeating: 0, count: 8)
+        let version = device["version_name"]!
+
+        let deviceInfo = proto(
+            f(1, 1, .sint), f(2, 2, .sint), f(3, "8662"), f(4, device["device_id"]!),
+            f(5, deviceNonce), f(6, "!noperm!"),
+            f(12, "Asia/Shanghai,8"), f(13, "zh_CN"), f(22, device["os_version"] ?? "16"),
+            f(25, Int(processStarted), .sint), f(30, device["device_type"] ?? ""),
+            f(31, "HONOR"), f(32, device["device_type"] ?? ""), f(34, "HONOR")
+        )
+        let env = proto(
+            f(6, "v04.10.03.04-bugfix"), f(8, device["channel"] ?? ""),
+            f(12, deviceInfo), f(14, version)
+        )
+        let jsonStr = """
+        {"cmr":16777216,"cmr2":16777216,"un_h":11,"vpn":0,"kd":0,"dyn":"","do":1,"tk":true}
+        """
+        let message = proto(
+            f(1, SignerV5Constants.magic), f(2, 5, .sint), f(3, Int(unsigned(rand())), .sint),
+            f(4, "8662"), f(5, device["device_id"]!), f(6, SignerV5Constants.license),
+            f(7, version), f(8, "v04.10.03-ml-android"), f(9, 0x040a0300, .sint),
+            f(10, flags), f(12, ts, .sint), f(13, f13), f(14, Array(querySm3[0..<6])),
+            f(15, proto(f(1, 1, .sint), f(2, 1, .sint), f(3, 1, .sint), f(5, 1, .sint))),
+            f(17, ts, .sint), f(20, "none"), f(21, 377, .sint), f(23, env), f(24, jsonStr)
+        )
+
+        let nonce = rand()
+        let key = SignerV5Constants.signKey
+        let hash = sm3(key + le32(nonce) + key)
+        let nonceU = UInt32(bitPattern: nonce)
+        let high = Int32((nonceU >> 16) & 255)
+        let inner = Int32(bitPattern: ((UInt32(bitPattern: high) << 11) | (nonceU >> 24)) ^ (UInt32(bitPattern: high) >> 5) ^ UInt32(bitPattern: high))
+        let seed = le32(~inner)
+        var transformed = Array((flags + xmxor(data: message, key: hash)).reversed())
+        for i in 0..<transformed.count {
+            transformed[i] = transformed[i] ^ seed[(~i) & 3]
+        }
+
+        let check = UInt32(((UInt32(querySm3[0]) & 63) << 14) | 0x18000001 | ((UInt32(f13[0]) & 63) << 8))
+        let packed = [UInt8]([0xca]) + le32(rand()) + le32(Int32(bitPattern: check)) + transformed
+            + [UInt8((nonceU >> 16) & 0xff), UInt8((nonceU >> 24) & 0xff)]
+        let encrypted = AesV3(
+            key: digest("MD5", Array(key[0..<16])), timestamp: Int(ts), v5: true
+        ).encrypt(source: packed, iv: digest("MD5", Array(key[16..<32])))
+
+        var prefix = le32(5) + SignerV5Constants.magic
+        let tsBytes = le32(ts)
+        for i in 0..<prefix.count { prefix[i] = prefix[i] ^ tsBytes[i & 3] }
+        return base64Encode(prefix + [UInt8(truncatingIfNeeded: nonce), UInt8((nonceU >> 8) & 0xff), 0, 1] + encrypted)
+    }
+
     private func ror64(_ v: Int64, _ n: Int) -> Int64 {
         let u = UInt64(bitPattern: v)
         let nn = UInt64(n & 63)
         return Int64(bitPattern: (u >> nn) | (u << (64 - nn)))
     }
 
-    func helios(ts: Int32) -> String {
+    func helios(ts: Int32, v5: Bool = false) -> String {
         let random = rand()
         let ascii = Array(hexString(digest("MD5", le32(random) + Array("8662".utf8))).utf8)
         var words: [Int64] = []
@@ -354,7 +433,8 @@ final class Signer {
             b0 = x8
             b8 = words.removeFirst()
         }
-        let text = Array("\(Int(ts))-1588093228-8662".utf8)
+        let license = v5 ? SignerV5Constants.license : "1588093228"
+        let text = Array("\(Int(ts))-\(license)-8662".utf8)
         let padding = 16 - (text.count % 16)
         let data = text + [UInt8](repeating: UInt8(padding), count: padding)
         var output = le32(random)

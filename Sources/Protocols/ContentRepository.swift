@@ -334,30 +334,59 @@ final class ContentRepository {
         return fallback
     }
 
-    /// 播放模型接口所用的番茄小说应用标识；参与 Ladon/Argus 签名，必须与 UA 版本号一致。
-    private static let playbackAid: Int64 = 1967
+    /// 构造 v5 播放签名请求。
+    ///
+    /// v5（v04.10.03）只在 `iv & 15 == 12` 这一个分支上有定义，而 `iv` 又依赖完整的
+    /// 查询串，所以需递增 `_rticket` 直到命中（命中率 1/16，上限 1024 次）。
+    /// 返回的 headers 只含上游保留的三个签名头。
+    private static func signPlayback(
+        base: String, values: [String: String], body: [UInt8], now: Int64, ts: Int32
+    ) -> (url: String, headers: [String: String])? {
+        let signer = Signer(clock: { now }, device: values)
+        for offset in 0..<1024 {
+            var merged = values
+            let ticket = now + Int64(offset)
+            merged["_rticket"] = String(ticket)
+            // 排序保证查询串顺序确定（签名对字节敏感）。
+            let query = merged.keys.sorted().map { "\(Signer.encode($0))=\(Signer.encode(merged[$0]!))" }
+                .joined(separator: "&")
+            guard signer.branch(query: query, body: body, ts: ts, v5: true) == 0 else { continue }
+            let url = "\(base)?\(query)"
+            // 上游在 v5 下只保留三个签名头（x-ss-req-ticket/ladon/argus/gorgon 均被剔除），
+            // x-ss-stub 在剔除之后另行加上。
+            let headers: [String: String] = [
+                "x-khronos": String(Int(ts)),
+                "x-helios": signer.helios(ts: ts, v5: true),
+                "x-medusa": signer.medusaV5(url: url, body: body, ts: ts),
+            ]
+            return (url, headers)
+        }
+        return nil
+    }
 
     /// 覆盖 VendorConstants 中属于红果（aid=8662）的版本字段。
-    private static let playbackOverrides: [String: String] = [
-        "aid": "1967",
-        "app_name": "novelapp",
-        "version_code": "74332",
-        "version_name": "7.4.3.32",
-        "manifest_version_code": "74332",
-        "update_version_code": "74332",
-        "pv_player": "74332",
+    /// v5（v04.10.03）不覆盖：签名内嵌 `8662` 与 `version_name`，与 query 必须同源。
+    private static let playbackOverrides: [String: String] = [:]
+
+    /// 播放模型接口的入口路径。
+    /// 旧的 `/novel/player/multi_video_model/v1/` 已不返回可用档位；
+    /// 当前接口为 `/player/v1`，且按集群区分 host。
+    private static let streamPath = "/novel/player/multi_video_model/player/v1"
+
+    /// 播放模型集群，按失败顺序回退。空响应换下一个集群；非空错误视为同一病症，不再空试。
+    private static let streamHosts = [
+        "reading.snssdk.com",
+        "api5-normal-sinfonlinea.fqnovel.com",
+        "api5-normal-lq.fqnovel.com",
+        "api5-normal-hl.fqnovel.com",
     ]
 
     /// 请求 `multi_video_model` 并解析档位。
     /// - Parameters:
     ///   - device: 已注册设备拼成的查询参数。
-    ///   - deviceLevel: 设备性能档位，默认 3；1 见 `registeredStreamLadder` 的降级说明。
-    private func fetchLadder(id: String, device: [String: String], deviceLevel: Int = 3) async throws -> StreamLadder {
+    ///   - deviceLevel: 设备性能档位，默认 1；1 才能拿到本机可解码的 bytevc1 档位（见 ISSUE61）。
+    private func fetchLadder(id: String, device: [String: String], deviceLevel: Int = 1) async throws -> StreamLadder {
         let payload = "{\"biz_param\":{\"detail_page_version\":0,\"device_level\":\(deviceLevel),\"disable_digg_stat\":false,\"need_all_video_definition\":true,\"need_mp4_align\":false,\"use_os_player\":false,\"use_server_dns\":false,\"video_platform\":1024},\"mixed_video_id_map\":{\"1004\":[\"\(id)\"]}}"
-        // 只剩 b 节点
-        let streamHosts = [
-            "api5-normal-sinfonlineb.fqnovel.com",
-        ]
         // 上游按 gzip 正文解压并校验 x-ss-stub（针对压缩后的字节）。
         let body = Gzip.compress(Array(payload.utf8))
         var lastError: Error?
@@ -365,35 +394,40 @@ final class ContentRepository {
         // 上抛成 PlayerDeviceRejected 让外层换设备，而非当作普通取流失败。
         var deviceRejected = false
         var rejectReason: String?
-        for host in streamHosts {
+        for host in Self.streamHosts {
             var values = device
-            // 播放接口使用番茄小说（aid=1967）的版本参数：aid 参与 Ladon/Argus 签名，
-            // 与 UA 版本号必须一致。沿用 VendorConstants 的 8662/71332 会被判为非法签名（空正文）。
+            // 播放接口使用番茄小说（aid=1967）的版本参数：aid 参与签名，
+            // 必须与 UA 版本号一致。沿用 VendorConstants 的 8662/71332 会被判为非法签名（空正文）。
             for (key, value) in Self.playbackOverrides { values[key] = value }
-            values["_rticket"] = String(clock())
-            let query = Signer.encode(values)
-            let url = "https://\(host)/novel/player/multi_video_model/v1/?\(query)"
-            let ts = clock() / 1000
-            // 播放类接口要求 x-argus/x-ladon 完整签名，否则一律 200 + 空正文。
-            let signature = Argus.headers(
-                query: query, body: body, ts: ts, aid: Self.playbackAid,
-                deviceId: values["device_id"] ?? "", installId: values["iid"] ?? ""
-            )
+            let ts = Int32(clock() / 1000)
+            // v5 只用 iv&15==12 这一点分支，因此需搜索能命中该分支的 _rticket。
+            // 搜索有界（1024 次）且只改 _rticket，不动剧集与设备身份。
+            guard let signed = Self.signPlayback(
+                base: "https://\(host)\(Self.streamPath)", values: values, body: body, now: clock(), ts: ts
+            ) else {
+                lastError = ContentError("无法生成播放请求签名")
+                continue
+            }
+            let url = signed.url
             var headers: [String: String] = [
-                "User-Agent": VendorConstants.PLAYBACK_UA,
+                "User-Agent": VendorConstants.PLAYER_UA,
                 "Accept": "application/json; charset=utf-8,application/x-protobuf",
                 "Content-Type": "application/json; charset=UTF-8",
                 "Content-Encoding": "gzip",
                 "x-ss-dp": "8662",
+                "sdk-version": "2",
+                "passport-sdk-version": "5051452",
+                "x-xs-from-web": "0",
+                // 上游按 gzip 字节校验 x-ss-stub。
+                "x-ss-stub": hexString(digest("MD5", body)).uppercased(),
             ]
-            for (key, value) in signature { headers[key] = value }
+            for (key, value) in signed.headers { headers[key] = value }
             do {
                 let resp = try await http.request(url, method: "POST", headers: headers, body: Data(body))
                 let raw = String(data: resp.data, encoding: .utf8) ?? ""
                 if raw.isEmpty {
-                    // 空 body（HTTP 200 + content-length: 0）不再当作设备级失效：
-                    // 实测接口整体故障时，任意设备/剧集/档位都返回空，换设备无意义。
-                    // 保留 retryable 标记，让上层决定是否重试。
+                    // HTTP 200 + 空正文：上游不给错误码。可能是集群故障或签名被拒，
+                    // 先换下一个集群；全部为空再上抛 retryable。
                     lastError = ContentError("播放接口返回空响应", statusCode: resp.statusCode, retryable: true)
                     // Log.shared.warn("streamLadder 取流失败 host=\(host)：播放接口返回空响应")
                     continue

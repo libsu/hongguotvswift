@@ -64,7 +64,7 @@ static func ladder(episode: String, device: PlayerDevice, level: Int) async thro
         deviceId: device.deviceId, installId: device.installId
     )
     var headers: [String: String] = [
-        "User-Agent": VendorConstants.PLAYBACK_UA,
+        "User-Agent": VendorConstants.PLAYER_UA,
         "Accept": "application/json; charset=utf-8,application/x-protobuf",
         "Content-Type": "application/json; charset=UTF-8",
         "Content-Encoding": "gzip",
